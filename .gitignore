@@ -1,0 +1,24 @@
+# Build artifacts
+target/
+*.jar
+*.class
+
+# IDE files
+.idea/
+*.iml
+.settings/
+.project
+.classpath
+*.shfbproj
+*.user
+*.suo
+*.userosscache
+*.sln.docstates
+
+# OS files
+Thumbs.db
+.DS_Store
+
+# Temporary files
+temp/
+dependency-reduced-pom.xml

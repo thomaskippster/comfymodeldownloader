@@ -1,8 +1,8 @@
 # Build artifacts
 target/
-.gradle/
 *.jar
 *.class
+dependency-reduced-pom.xml
 
 # IDE files
 .idea/
@@ -10,16 +10,20 @@ target/
 .settings/
 .project
 .classpath
-*.shfbproj
-*.user
-*.suo
-*.userosscache
-*.sln.docstates
 
 # OS files
 Thumbs.db
 .DS_Store
 
-# Temporary files
-temp/
-dependency-reduced-pom.xml
+# --- Project Specific ---
+# Sensitive API keys
+app_settings.json
+
+# User Model List (internal DB)
+uploaded_models.json
+
+# Local config & assets
+workflow.json
+*.png
+*.bat
+!src/main/resources/known_good_urls.json

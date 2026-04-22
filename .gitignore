@@ -18,6 +18,7 @@ Thumbs.db
 # --- Project Specific ---
 # Sensitive API keys
 app_settings.json
+settings.vault
 
 # User Model List (internal DB)
 uploaded_models.json

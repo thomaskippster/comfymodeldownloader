@@ -62,7 +62,8 @@ public class GeminiAIService {
         if (apiKey == null || apiKey.trim().isEmpty()) return null;
 
         try {
-            String shortContext = metadataContext.length() > 25000 ? metadataContext.substring(0, 25000) : metadataContext;
+            String context = metadataContext != null ? metadataContext : "No context";
+            String shortContext = context.length() > 25000 ? context.substring(0, 25000) : context;
 
             String prompt = "Websuche: Ermittle das offizielle Hugging Face Repository für die Datei '" + modelName + "'.\n\n" +
                     "KONTEXT:\n" +

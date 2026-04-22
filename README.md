@@ -4,10 +4,15 @@ A robust, feature-rich Java Swing application designed to automate the process o
 
 ## 🚀 Key Features
 
-### 🔍 Advanced JSON Parsing
+### 🔍 Advanced Workflow Extraction
+- **JSON & PNG Support**: Directly load `.json` workflows or drop ComfyUI-generated `.png` files to extract embedded workflow and prompt metadata (tEXt, iTXt, zTXt chunks).
 - **Recursive Traversal**: Scans deeply nested structures, including subgraphs and custom node definitions.
-- **Filename Detection**: Uses smart regex to find model files (`.safetensors`, `.ckpt`, `.pt`, etc.) inside `widgets_values`, `inputs`, and other string fields.
-- **Metadata Support**: Automatically detects and prioritizes embedded model metadata (standard `models` array used by ComfyUI managers).
+- **Smart Detection**: Uses regex and node-type analysis to find model files (`.safetensors`, `.ckpt`, etc.) and infer their target directory (e.g., `checkpoints`, `loras`, `vae`).
+
+### 🤖 AI-Powered Discovery
+- **Local AI Heuristics**: Built-in scoring engine to predict model providers (e.g., StabilityAI, Black Forest Labs) offline based on filenames.
+- **Gemini Deep Search**: Integrated "Deep Search" using the Google Gemini API to find official Hugging Face repositories and direct download links for obscure models.
+- **Context Awareness**: Disambiguates generic filenames (like `ae.safetensors`) by analyzing the global workflow context (e.g., detecting FLUX or SD3 usage).
 
 ### 📥 Powerful Download Manager
 - **Resume Capability**: Implements HTTP Range requests to continue interrupted downloads exactly where they left off.
@@ -22,38 +27,30 @@ A robust, feature-rich Java Swing application designed to automate the process o
 ## 🛠️ Requirements
 - **Java 11** or higher
 - **Maven** (for building from source)
+- **API Key (Optional)**: A Google Gemini API key for "Deep Search" functionality.
 
-## 🏗️ Installation & Build
+## 🏗️ Build & Run
 
-1. Clone the repository:
-   ```bash
-   git clone https://github.com/thomaskippster/comfymodeldownloader.git
-   cd comfymodeldownloader
-   ```
-
-2. Build the "Fat JAR" using Maven:
+1. **Build the Fat JAR**:
    ```bash
    mvn clean package
    ```
 
-3. Locate the runnable JAR in the `target/` directory:
-   `comfymodeldownloader-1.0-SNAPSHOT.jar`
+2. **Launch**:
+   ```bash
+   java -jar target/comfymodeldownloader-1.0-SNAPSHOT.jar
+   ```
 
 ## 📖 How to Use
 
-1. **Launch**: Start the application via `java -jar target/comfymodeldownloader-1.0-SNAPSHOT.jar`.
-2. **Setup Path**: Enter or browse to your local ComfyUI models directory (e.g., `C:\ComfyUI\models`).
-3. **Provide Workflow**:
-    - **Paste**: Directly paste the content of your ComfyUI JSON file into the text area.
-    - **Load**: Use the "Load File..." button to select a `.json` file from your disk.
-4. **Analyze**: Click **Analyze Models**. The table will populate with detected models and their types.
-5. **Download**:
-    - Select models using the checkboxes.
-    - Click **Start Queue**.
-    - If a file exists, choose to **Resume** or **Overwrite**.
+1. **Setup Path**: Enter or browse to your local ComfyUI models directory.
+2. **Provide Workflow**: Paste JSON content, load a `.json` file, or load a `.png` with embedded metadata.
+3. **Analyze**: Click **Analyze Models**. The application will identify missing models and categorize them.
+4. **Deep Search**: For unknown models, use the "Deep Search" feature to let the AI find the source.
+5. **Download**: Select models and click **Start Queue**.
 
 ## 📜 License
-This project is licensed under the MIT License - see the LICENSE file for details (or just use it freely!).
+This project is licensed under the MIT License.
 
 ---
 *Developed to make ComfyUI workflow sharing seamless.*

@@ -16,7 +16,8 @@ public interface IModelSearchService {
      */
     void searchOnline(List<ModelInfo> modelsToDownload, boolean[] selectedIndices, String workflowContext, String fileName, 
                              BiConsumer<Integer, String> onStatusUpdate, 
-                             BiConsumer<Integer, ModelInfo> onModelFound);
+                             BiConsumer<Integer, ModelInfo> onModelFound,
+                             Runnable onFinished);
 
     long getRemoteSize(String url);
     String formatSize(long bytes);

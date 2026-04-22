@@ -14,6 +14,9 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BiConsumer;
 
 @Service
@@ -39,80 +42,133 @@ public class ModelSearchService implements IModelSearchService {
             .followRedirects(HttpClient.Redirect.ALWAYS)
             .build();
 
+    private final ExecutorService searchExecutor = Executors.newFixedThreadPool(4);
+
     @Override
     public void searchOnline(List<ModelInfo> modelsToDownload, boolean[] selectedIndices, String workflowContext, String fileName,
-                                     BiConsumer<Integer, String> onStatusUpdate,
-                                     BiConsumer<Integer, ModelInfo> onModelFound) {
-        if (modelsToDownload == null) return;
-
-        for (int i = 0; i < modelsToDownload.size(); i++) {
-            if (!selectedIndices[i]) continue;
-            
-            ModelInfo info = modelsToDownload.get(i);
-            final int index = i;
-            new Thread(() -> {
-                // Priority 1: User defined Model List
-                Optional<ModelInfo> manualMatch = modelListService.findByFilename(info.getName());
-                if (manualMatch.isPresent() && !manualMatch.get().getUrl().equals("MISSING")) {
-                    onStatusUpdate.accept(index, "📂 Found in Model List");
-                    if (validateAndSetUrl(info, index, manualMatch.get().getUrl(), "📂 USER DEFINED", onStatusUpdate, onModelFound)) return;
-                }
-
-                onStatusUpdate.accept(index, "✨ Gemini Scouting...");
-                String aiHint = geminiService.discoverBestRepo(info.getName(), fileName, workflowContext);
-                if (aiHint != null && !aiHint.equalsIgnoreCase("UNKNOWN")) {
-                    if (aiHint.startsWith("http")) {
-                        if (validateAndSetUrl(info, index, aiHint, "✨ AI DIRECT", onStatusUpdate, onModelFound)) return;
-                    }
-                    onStatusUpdate.accept(index, "🔍 Validating Repo: " + aiHint);
-                    if (fetchHuggingFaceUrlInSpecificRepo(info, index, aiHint, onStatusUpdate, onModelFound)) return;
-                }
-
-                String modelName = info.getName();
-                String cleanName = modelName.replaceAll("(_fp8|_fp16|_bf16|_v\\d+|\\d+v|_fix|\\.safetensors|\\.sft|\\.ckpt)", "");
-                String baseName = cleanName.split("[_\\- ]")[0];
-                
-                String contextPrefix = fileName.toLowerCase().split("[_\\- ]")[0];
-                if (contextPrefix.length() < 3) contextPrefix = "";
-
-                LinkedHashSet<String> attempts = new LinkedHashSet<>();
-                if (!contextPrefix.isEmpty()) {
-                    attempts.add(contextPrefix + " " + modelName);
-                    attempts.add(contextPrefix + " " + cleanName);
-                }
-                attempts.add(modelName);
-                attempts.add(cleanName);
-                attempts.add(baseName);
-
-                // Suche in offiziellen Repos (Top 100)
-                for (String query : attempts) {
-                    if (query.length() < 3) continue;
-                    onStatusUpdate.accept(index, "🔍 Searching Official: " + query);
-                    if (fetchHuggingFaceUrl(info, index, query, true, onStatusUpdate, onModelFound)) return;
-                }
-                
-                // Suche in Community Repos (Top 100)
-                for (String query : attempts) {
-                    if (query.length() < 3) continue;
-                    onStatusUpdate.accept(index, "🔍 Searching Community: " + query);
-                    if (fetchHuggingFaceUrl(info, index, query, false, onStatusUpdate, onModelFound)) return;
-                }
-
-                // Civitai Fallback
-                for (String query : attempts) {
-                    if (query.length() < 3) continue;
-                    onStatusUpdate.accept(index, "🔍 Searching Civitai: " + query);
-                    if (fetchCivitaiUrl(info, index, query, onStatusUpdate, onModelFound)) return;
-                }
-                
-                onStatusUpdate.accept(index, "❌ No trusted match found");
-            }).start();
+                             BiConsumer<Integer, String> onStatusUpdate,
+                             BiConsumer<Integer, ModelInfo> onModelFound,
+                             Runnable onFinished) {
+        if (modelsToDownload == null) {
+            if (onFinished != null) onFinished.run();
+            return;
         }
+
+        List<Integer> targetIndices = new ArrayList<>();
+        for (int i = 0; i < modelsToDownload.size(); i++) {
+            if (selectedIndices != null && i < selectedIndices.length && !selectedIndices[i]) continue;
+            targetIndices.add(i);
+        }
+
+        if (targetIndices.isEmpty()) {
+            if (onFinished != null) onFinished.run();
+            return;
+        }
+
+        AtomicInteger remaining = new AtomicInteger(targetIndices.size());
+
+        for (int index : targetIndices) {
+            ModelInfo info = modelsToDownload.get(index);
+            searchExecutor.submit(() -> {
+                try {
+                    performSearch(info, index, fileName, workflowContext, onStatusUpdate, onModelFound);
+                } catch (Exception e) {
+                    onStatusUpdate.accept(index, "Error: " + e.getMessage());
+                } finally {
+                    if (remaining.decrementAndGet() == 0 && onFinished != null) {
+                        onFinished.run();
+                    }
+                }
+            });
+        }
+    }
+
+    private void performSearch(ModelInfo info, int index, String fileName, String workflowContext,
+                               BiConsumer<Integer, String> onStatusUpdate,
+                               BiConsumer<Integer, ModelInfo> onModelFound) {
+        // Priority 1: User defined Model List
+        Optional<ModelInfo> manualMatch = modelListService.findByFilename(info.getName());
+        if (manualMatch.isPresent() && !manualMatch.get().getUrl().equals("MISSING")) {
+            onStatusUpdate.accept(index, "📂 Found in Model List");
+            if (validateAndSetUrl(info, index, manualMatch.get().getUrl(), "📂 USER DEFINED", onStatusUpdate, onModelFound)) return;
+        }
+
+        onStatusUpdate.accept(index, "✨ Gemini Scouting...");
+        String aiHint = geminiService.discoverBestRepo(info.getName(), fileName, workflowContext);
+        if (aiHint != null && !aiHint.equalsIgnoreCase("UNKNOWN")) {
+            if (aiHint.startsWith("http")) {
+                if (validateAndSetUrl(info, index, aiHint, "✨ AI DIRECT", onStatusUpdate, onModelFound)) return;
+            }
+            onStatusUpdate.accept(index, "🔍 Validating Repo: " + aiHint);
+            if (fetchHuggingFaceUrlInSpecificRepo(info, index, aiHint, onStatusUpdate, onModelFound)) return;
+        }
+
+        String modelName = info.getName();
+        String cleanName = modelName.replaceAll("(_fp8|_fp16|_bf16|_v\\d+|\\d+v|_fix|\\.safetensors|\\.sft|\\.ckpt)", "");
+        String[] nameParts = cleanName.split("[_\\- ]");
+        String baseName = nameParts.length > 0 ? nameParts[0] : cleanName;
+        
+        String contextPrefix = "";
+        if (fileName != null && !fileName.isEmpty()) {
+            String[] fileParts = fileName.toLowerCase().split("[_\\- ]");
+            if (fileParts.length > 0) {
+                contextPrefix = fileParts[0];
+                if (contextPrefix.length() < 3 || contextPrefix.startsWith("workflow")) {
+                    contextPrefix = "";
+                }
+            }
+        }
+        
+        if (contextPrefix.isEmpty() && info.getPopularity() != null && info.getPopularity().contains("Context: ")) {
+            String[] popParts = info.getPopularity().split("Context: ");
+            if (popParts.length > 1) {
+                contextPrefix = popParts[1].split(" ")[0].toLowerCase();
+            }
+        }
+
+        LinkedHashSet<String> attempts = new LinkedHashSet<>();
+        if (!contextPrefix.isEmpty()) {
+            attempts.add(contextPrefix + " " + modelName);
+            attempts.add(contextPrefix + " " + cleanName);
+        }
+        attempts.add(modelName);
+        attempts.add(cleanName);
+        attempts.add(baseName);
+
+        // Suche in offiziellen Repos (Top 100)
+        for (String query : attempts) {
+            if (query.length() < 3) continue;
+            onStatusUpdate.accept(index, "🔍 Searching Official: " + query);
+            if (fetchHuggingFaceUrl(info, index, query, true, onStatusUpdate, onModelFound)) return;
+        }
+        
+        // Suche in Community Repos (Top 100)
+        for (String query : attempts) {
+            if (query.length() < 3) continue;
+            onStatusUpdate.accept(index, "🔍 Searching Community: " + query);
+            if (fetchHuggingFaceUrl(info, index, query, false, onStatusUpdate, onModelFound)) return;
+        }
+
+        // Civitai Fallback
+        for (String query : attempts) {
+            if (query.length() < 3) continue;
+            onStatusUpdate.accept(index, "🔍 Searching Civitai: " + query);
+            if (fetchCivitaiUrl(info, index, query, onStatusUpdate, onModelFound)) return;
+        }
+        
+        onStatusUpdate.accept(index, "❌ No trusted match found");
     }
 
     private boolean validateAndSetUrl(ModelInfo info, int rowIndex, String url, String popPrefix,
                                      BiConsumer<Integer, String> onStatusUpdate,
                                      BiConsumer<Integer, ModelInfo> onModelFound) {
+        if (url == null) return false;
+        
+        // Normalize Hugging Face blob URLs to resolve URLs
+        if (url.contains("huggingface.co") && url.contains("/blob/")) {
+            url = url.replace("/blob/", "/resolve/");
+        }
+
         long size = getRemoteSize(url);
         if (size > 100) {
             info.setUrl(url);

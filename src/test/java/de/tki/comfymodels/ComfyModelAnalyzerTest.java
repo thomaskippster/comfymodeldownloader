@@ -26,7 +26,7 @@ public class ComfyModelAnalyzerTest {
                 .orElse(null);
         
         assertNotNull(flux);
-        assertEquals("checkpoints", flux.getType());
+        assertEquals("unet", flux.getType());
         assertEquals("https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors", flux.getUrl());
     }
 

@@ -16,15 +16,19 @@ Thumbs.db
 .DS_Store
 
 # --- Project Specific ---
-# Sensitive API keys
+# Sensitive API keys and secrets
 app_settings.json
 settings.vault
+boot.key
+.env
 
 # User Model List (internal DB)
 uploaded_models.json
+pending_downloads.json
 
 # Local config & assets
 workflow.json
 *.png
 *.bat
+*.zip
 !src/main/resources/known_good_urls.json

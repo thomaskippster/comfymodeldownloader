@@ -55,9 +55,29 @@ public class ModelListService {
     }
 
     public Optional<ModelInfo> findByFilename(String filename) {
-        return models.stream()
-                .filter(m -> filename.equalsIgnoreCase(m.getFilename()))
+        if (filename == null) return Optional.empty();
+        String low = filename.toLowerCase();
+        
+        // 1. Direct match
+        Optional<ModelInfo> direct = models.stream()
+                .filter(m -> filename.equalsIgnoreCase(m.getFilename()) || filename.equalsIgnoreCase(m.getName()))
                 .findFirst();
+        if (direct.isPresent()) return direct;
+
+        // 2. Strip paths and extensions for fuzzy match
+        String lowStrip = low.contains("/") ? low.substring(low.lastIndexOf("/") + 1) : low;
+        if (lowStrip.contains("\\")) lowStrip = lowStrip.substring(lowStrip.lastIndexOf("\\") + 1);
+        String lowNoExt = lowStrip.contains(".") ? lowStrip.substring(0, lowStrip.lastIndexOf(".")) : lowStrip;
+
+        final String finalLowStrip = lowStrip;
+        final String finalLowNoExt = lowNoExt;
+
+        return models.stream().filter(m -> {
+            String mf = m.getFilename() != null ? m.getFilename().toLowerCase() : "";
+            String mn = m.getName() != null ? m.getName().toLowerCase() : "";
+            return mf.equals(finalLowStrip) || mn.equals(finalLowStrip) || 
+                   mf.startsWith(finalLowNoExt) || mn.startsWith(finalLowNoExt);
+        }).findFirst();
     }
 
     private void loadFromStorage() {

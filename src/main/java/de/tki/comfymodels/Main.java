@@ -4,10 +4,13 @@ import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.IDownloadManager;
 import de.tki.comfymodels.service.IModelAnalyzer;
 import de.tki.comfymodels.service.IWorkflowService;
+import de.tki.comfymodels.service.IModelValidator;
 import de.tki.comfymodels.service.IModelSearchService;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.GeminiAIService;
 import de.tki.comfymodels.service.impl.ModelListService;
+import org.json.JSONArray;
+import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 import org.springframework.context.annotation.ComponentScan;
@@ -23,10 +26,16 @@ import java.awt.datatransfer.DataFlavor;
 import java.awt.dnd.*;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.ActionListener;
+import java.awt.image.BufferedImage;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.stream.Collectors;
 
 @Component
 public class Main extends JFrame {
@@ -34,6 +43,7 @@ public class Main extends JFrame {
     private final IDownloadManager downloadManager;
     private final IWorkflowService workflowService;
     private final IModelSearchService searchService;
+    private final IModelValidator modelValidator;
 
     @Autowired
     private ConfigService configService;
@@ -47,6 +57,8 @@ public class Main extends JFrame {
     private JTextField modelsPathField;
     private JPasswordField geminiKeyField;
     private JPasswordField hfTokenField;
+    private JCheckBox backgroundCheck;
+    private JCheckBox shutdownCheck;
     private JLabel activeAiModelLabel;
     private JTextArea jsonInputArea;
     private DefaultTableModel tableModel;
@@ -56,14 +68,24 @@ public class Main extends JFrame {
     private String currentFileName = "input.json";
 
     public Main(IModelAnalyzer analyzer, IDownloadManager downloadManager,
-                IWorkflowService workflowService, IModelSearchService searchService) {
+                IWorkflowService workflowService, IModelSearchService searchService,
+                IModelValidator modelValidator) {
         this.analyzer = analyzer;
         this.downloadManager = downloadManager;
         this.workflowService = workflowService;
         this.searchService = searchService;
+        this.modelValidator = modelValidator;
     }
 
-    public void launch() {
+    public void launch(String[] args) {
+        boolean backgroundArg = false;
+        for (String arg : args) {
+            if ("--background".equalsIgnoreCase(arg)) {
+                backgroundArg = true;
+                break;
+            }
+        }
+
         try {
             UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
         } catch (Exception e) {}
@@ -74,20 +96,83 @@ public class Main extends JFrame {
         
         SwingUtilities.invokeLater(() -> {
             initUI();
+            setupTrayIcon();
             loadSettingsIntoUI(); 
             updateAiModelDisplay();
             
-            // Add WindowListener to stop downloads on close
+            // Add WindowListener to handle background mode
             addWindowListener(new java.awt.event.WindowAdapter() {
                 @Override
                 public void windowClosing(java.awt.event.WindowEvent e) {
-                    downloadManager.stop();
-                    System.exit(0);
+                    if (configService.isBackgroundModeEnabled()) {
+                        setVisible(false);
+                    } else {
+                        downloadManager.stop();
+                        System.exit(0);
+                    }
                 }
             });
             
             setVisible(true);
         });
+    }
+
+    private void setupTrayIcon() {
+        if (!SystemTray.isSupported()) return;
+
+        SystemTray tray = SystemTray.getSystemTray();
+        // Use a simple colored square as fallback (Pink for ComfyUI style)
+        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB);
+        Graphics2D g2 = image.createGraphics();
+        g2.setColor(new Color(255, 105, 180)); // Hot Pink
+        g2.fillRect(0, 0, 16, 16);
+        g2.dispose();
+
+        PopupMenu popup = new PopupMenu();
+        MenuItem showItem = new MenuItem("Show UI");
+        showItem.addActionListener(e -> setVisible(true));
+        MenuItem exitItem = new MenuItem("Exit");
+        exitItem.addActionListener(e -> {
+            downloadManager.stop();
+            System.exit(0);
+        });
+
+        popup.add(showItem);
+        popup.addSeparator();
+        popup.add(exitItem);
+
+        TrayIcon trayIcon = new TrayIcon(image, "ComfyUI Model Downloader", popup);
+        trayIcon.setImageAutoSize(true);
+        trayIcon.addActionListener(e -> setVisible(true));
+
+        try {
+            tray.add(trayIcon);
+        } catch (AWTException e) {
+            System.err.println("TrayIcon could not be added.");
+        }
+    }
+
+    private void updatePendingDownloadsPersistence() {
+        if (modelsToDownload == null) return;
+        org.json.JSONArray arr = new org.json.JSONArray();
+        for (int i = 0; i < modelsToDownload.size(); i++) {
+            // Only save if not finished
+            String status = "";
+            if (tableModel != null && tableModel.getRowCount() > i) {
+                status = (String) tableModel.getValueAt(i, 7);
+            }
+            
+            if (!status.contains("✅ Finished") && !status.contains("Already exists")) {
+                ModelInfo info = modelsToDownload.get(i);
+                org.json.JSONObject obj = new org.json.JSONObject();
+                obj.put("name", info.getName());
+                obj.put("url", info.getUrl());
+                obj.put("type", info.getType());
+                obj.put("save_path", info.getSave_path());
+                arr.put(obj);
+            }
+        }
+        configService.savePendingDownloads(arr.toString());
     }
 
     private boolean promptForPassword() {
@@ -134,6 +219,12 @@ public class Main extends JFrame {
             hfTokenField.setText(token);
             System.out.println("GUI: HF Token loaded (length: " + (token != null ? token.length() : 0) + ")");
         }
+        if (backgroundCheck != null) {
+            backgroundCheck.setSelected(configService.isBackgroundModeEnabled());
+        }
+        if (shutdownCheck != null) {
+            shutdownCheck.setSelected(configService.isShutdownAfterDownloadEnabled());
+        }
     }
 
     private void updateAiModelDisplay() {
@@ -146,7 +237,7 @@ public class Main extends JFrame {
     private void initUI() {
         setTitle("ComfyUIModel-Downloader");
         setSize(1450, 1000);
-        setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
+        setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
         setLayout(new BorderLayout());
 
         JPanel settingsPanel = new JPanel(new GridLayout(4, 1));
@@ -209,7 +300,20 @@ public class Main extends JFrame {
         JPanel infoRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
         JButton helpBtn = new JButton("ℹ Help & Security Information");
         helpBtn.addActionListener(e -> showHelpDialog());
+        
+        JButton verifyBtn = new JButton("🔍 Verify Local Models (Corruption Check)");
+        verifyBtn.addActionListener(e -> verifyLocalModels());
+
+        backgroundCheck = new JCheckBox("Stay in Background on Close");
+        backgroundCheck.addActionListener(e -> configService.setBackgroundModeEnabled(backgroundCheck.isSelected()));
+
+        shutdownCheck = new JCheckBox("Shutdown after Queue");
+        shutdownCheck.addActionListener(e -> configService.setShutdownAfterDownloadEnabled(shutdownCheck.isSelected()));
+
         infoRow.add(helpBtn);
+        infoRow.add(verifyBtn);
+        infoRow.add(backgroundCheck);
+        infoRow.add(shutdownCheck);
 
         settingsPanel.add(pathRow);
         settingsPanel.add(apiRow);
@@ -311,11 +415,22 @@ public class Main extends JFrame {
             }
 
             downloadButton.setEnabled(false);
+            updatePendingDownloadsPersistence();
             downloadManager.startQueue(modelsToDownload, selected, modelsPathField.getText(),
-                (idx, status) -> SwingUtilities.invokeLater(() -> tableModel.setValueAt(status, idx, 7)),       
+                (idx, status) -> SwingUtilities.invokeLater(() -> {
+                    tableModel.setValueAt(status, idx, 7);
+                    if (status.contains("✅ Finished") || status.contains("Already exists")) {
+                        updatePendingDownloadsPersistence();
+                    }
+                }),
                 () -> SwingUtilities.invokeLater(() -> {
                     downloadButton.setEnabled(true);
                     statusLabel.setText("Queue finished.");
+                    updatePendingDownloadsPersistence();
+                    
+                    if (configService.isShutdownAfterDownloadEnabled()) {
+                        performSystemShutdown();
+                    }
                 })
             );
         });
@@ -348,6 +463,21 @@ public class Main extends JFrame {
         add(settingsPanel, BorderLayout.NORTH);
         add(splitPane, BorderLayout.CENTER);
         add(bottomPanel, BorderLayout.SOUTH);
+    }
+
+    private void performSystemShutdown() {
+        String os = System.getProperty("os.name").toLowerCase();
+        try {
+            if (os.contains("win")) {
+                Runtime.getRuntime().exec("shutdown /s /t 60");
+                JOptionPane.showMessageDialog(this, "The system will shut down in 60 seconds. You can cancel this with 'shutdown /a' in the terminal.", "System Shutdown Scheduled", JOptionPane.WARNING_MESSAGE);
+            } else if (os.contains("nix") || os.contains("nux") || os.contains("mac")) {
+                Runtime.getRuntime().exec("shutdown -h +1");
+                JOptionPane.showMessageDialog(this, "The system will shut down in 1 minute. You can cancel this with 'shutdown -c'.", "System Shutdown Scheduled", JOptionPane.WARNING_MESSAGE);
+            }
+        } catch (IOException e) {
+            JOptionPane.showMessageDialog(this, "Could not trigger system shutdown: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
     }
 
     private void updateDownloadManagerSelection() {
@@ -389,10 +519,23 @@ public class Main extends JFrame {
         if (text.isEmpty()) return;
         modelsToDownload = analyzer.analyze(text, currentFileName);
         tableModel.setRowCount(0);
+        String baseModelsPath = modelsPathField.getText();
+        
         for (int i = 0; i < modelsToDownload.size(); i++) {
             ModelInfo info = modelsToDownload.get(i);
-            String targetSubDir = "models" + File.separator + (info.getType() != null ? info.getType() : "checkpoints");
-            tableModel.addRow(new Object[]{true, info.getType(), info.getName(), info.getSize(), info.getPopularity(), targetSubDir, info.getUrl(), info.getUrl().equals("MISSING") ? "Idle" : "✅ Known Good"});
+            String type = info.getType() != null ? info.getType() : "checkpoints";
+            String targetSubDir = "models" + File.separator + type;
+            
+            // Check if file already exists locally
+            String status = info.getUrl().equals("MISSING") ? "Idle" : "✅ Known Good";
+            boolean isSelected = true;
+            Path localPath = Paths.get(baseModelsPath, info.getSave_path() != null ? info.getSave_path() : type, info.getName());
+            if (Files.exists(localPath)) {
+                status = "✅ Already exists";
+                isSelected = false; // Deselect if already present
+            }
+            
+            tableModel.addRow(new Object[]{isSelected, info.getType(), info.getName(), info.getSize(), info.getPopularity(), targetSubDir, info.getUrl(), status});
             if (!info.getUrl().equals("MISSING")) fetchSizeInBackground(info, i);
         }
         downloadButton.setEnabled(!modelsToDownload.isEmpty());
@@ -430,6 +573,89 @@ public class Main extends JFrame {
             }),
             () -> SwingUtilities.invokeLater(() -> statusLabel.setText("Deep Search finished."))
         );
+    }
+
+    private void verifyLocalModels() {
+        String baseDir = modelsPathField.getText();
+        if (baseDir == null || baseDir.isEmpty()) {
+            JOptionPane.showMessageDialog(this, "Please set a models directory first.");
+            return;
+        }
+
+        File root = new File(baseDir);
+        if (!root.exists() || !root.isDirectory()) {
+            JOptionPane.showMessageDialog(this, "Invalid models directory.");
+            return;
+        }
+
+        statusLabel.setText("Verifying models... please wait.");
+        new Thread(() -> {
+            try {
+                List<IModelValidator.ValidationResult> errors = new ArrayList<>();
+                List<Path> allFiles = Files.walk(root.toPath())
+                        .filter(Files::isRegularFile)
+                        .filter(p -> {
+                            String n = p.getFileName().toString().toLowerCase();
+                            return n.endsWith(".safetensors") || n.endsWith(".sft") || n.endsWith(".ckpt") || n.endsWith(".pth") || n.endsWith(".pt") || n.endsWith(".bin");
+                        })
+                        .collect(Collectors.toList());
+
+                int total = allFiles.size();
+                for (int i = 0; i < total; i++) {
+                    Path p = allFiles.get(i);
+                    final int current = i + 1;
+                    SwingUtilities.invokeLater(() -> statusLabel.setText("Checking (" + current + "/" + total + "): " + p.getFileName()));
+                    
+                    IModelValidator.ValidationResult res = modelValidator.validateFile(p.toFile());
+                    if (!res.ok) {
+                        errors.add(res);
+                    }
+                }
+
+                SwingUtilities.invokeLater(() -> {
+                    statusLabel.setText("Verification finished. Found " + errors.size() + " issues.");
+                    if (errors.isEmpty()) {
+                        JOptionPane.showMessageDialog(this, "All " + total + " models verified successfully!", "Verification Complete", JOptionPane.INFORMATION_MESSAGE);
+                    } else {
+                        StringBuilder sb = new StringBuilder("The following " + errors.size() + " files appear to be corrupted or invalid:\n\n");
+                        for (IModelValidator.ValidationResult err : errors) {
+                            sb.append("- ").append(new File(err.filePath).getName())
+                              .append(" (").append(err.message).append(")\n")
+                              .append("  Path: ").append(err.filePath).append("\n\n");
+                        }
+                        
+                        JTextArea textArea = new JTextArea(sb.toString());
+                        textArea.setEditable(false);
+                        JScrollPane scrollPane = new JScrollPane(textArea);
+                        scrollPane.setPreferredSize(new Dimension(800, 500));
+                        
+                        Object[] options = {"OK", "Delete All Corrupted Files"};
+                        int choice = JOptionPane.showOptionDialog(this, scrollPane, "Verification Results - Issues Found", 
+                                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+                        
+                        if (choice == 1) { // Delete All Corrupted Files
+                            int confirm = JOptionPane.showConfirmDialog(this, 
+                                "Are you sure you want to delete these " + errors.size() + " files?\nThis action cannot be undone.",
+                                "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+                            
+                            if (confirm == JOptionPane.YES_OPTION) {
+                                int deletedCount = 0;
+                                for (IModelValidator.ValidationResult err : errors) {
+                                    File f = new File(err.filePath);
+                                    if (f.exists() && f.delete()) {
+                                        deletedCount++;
+                                    }
+                                }
+                                JOptionPane.showMessageDialog(this, "Deleted " + deletedCount + " files.");
+                                statusLabel.setText("Cleanup finished. Deleted " + deletedCount + " files.");
+                            }
+                        }
+                    }
+                });
+            } catch (IOException e) {
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Error during verification: " + e.getMessage()));
+            }
+        }).start();
     }
 
     private void showHelpDialog() {
@@ -471,7 +697,7 @@ public class Main extends JFrame {
     public static void main(String[] args) {
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);   
         Main main = context.getBean(Main.class);
-        main.launch();
+        main.launch(args);
     }
 
     @Configuration

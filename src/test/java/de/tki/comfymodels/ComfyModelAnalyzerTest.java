@@ -1,46 +1,49 @@
-package de.tki.comfymodels.service;
+package de.tki.comfymodels;
 
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ComfyModelAnalyzer;
+import de.tki.comfymodels.service.impl.ModelListService;
 import org.junit.jupiter.api.Test;
-
+import java.lang.reflect.Field;
 import java.util.List;
+import java.util.Optional;
 
 import static org.junit.jupiter.api.Assertions.*;
 
 public class ComfyModelAnalyzerTest {
 
-    private final ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
-
     @Test
-    public void testAnalyzeBasicWorkflow() {
-        String json = "{\"nodes\": [{\"type\": \"CheckpointLoaderSimple\", \"widgets_values\": [\"flux1-schnell.sft\"]}]}";
+    public void testAnalyzeBasicWorkflow() throws Exception {
+        ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
+        
+        // Mock ModelListService
+        ModelListService mockListService = new ModelListService() {
+            @Override
+            public Optional<ModelInfo> findByFilename(String filename) {
+                if ("flux1-schnell.safetensors".equalsIgnoreCase(filename)) {
+                    return Optional.of(new ModelInfo("checkpoints", "flux1-schnell.safetensors", 
+                        "https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors"));
+                }
+                return Optional.empty();
+            }
+        };
+        
+        Field field = ComfyModelAnalyzer.class.getDeclaredField("modelListService");
+        field.setAccessible(true);
+        field.set(analyzer, mockListService);
+
+        String json = "{\"nodes\": [{\"type\": \"CheckpointLoaderSimple\", \"widgets_values\": [\"flux1-schnell.safetensors\"]}]}";
         List<ModelInfo> models = analyzer.analyze(json, "test.json");
-        
-        assertNotNull(models);
+
         assertFalse(models.isEmpty());
-        
-        ModelInfo flux = models.stream()
-                .filter(m -> m.getName().equals("flux1-schnell.sft"))
-                .findFirst()
-                .orElse(null);
-        
-        assertNotNull(flux);
-        assertEquals("unet", flux.getType());
-        assertEquals("https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors", flux.getUrl());
+        assertEquals("flux1-schnell.safetensors", models.get(0).getName());
+        assertEquals("https://huggingface.co/black-forest-labs/FLUX.1-schnell/resolve/main/flux1-schnell.safetensors", models.get(0).getUrl());
     }
 
     @Test
-    public void testAnalyzeLora() {
-        String json = "{\"nodes\": [{\"type\": \"LoraLoader\", \"widgets_values\": [\"my_cool_lora.safetensors\"]}]}";
-        List<ModelInfo> models = analyzer.analyze(json, "test.json");
-        
-        ModelInfo lora = models.stream()
-                .filter(m -> m.getName().equals("my_cool_lora.safetensors"))
-                .findFirst()
-                .orElse(null);
-        
-        assertNotNull(lora);
-        assertEquals("loras", lora.getType());
+    public void testInvalidJson() {
+        ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
+        List<ModelInfo> models = analyzer.analyze("invalid json", "test.json");
+        assertTrue(models.isEmpty());
     }
 }

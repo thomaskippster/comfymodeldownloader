@@ -11,10 +11,6 @@ import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-import jakarta.annotation.PostConstruct;
-import java.io.InputStream;
-import java.nio.charset.StandardCharsets;
-
 @Service
 public class ComfyModelAnalyzer implements IModelAnalyzer {
     
@@ -33,31 +29,11 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
         static final Pattern COMP_CLIP = Pattern.compile("(clip|t5|text_encoder|llama|gemma|mistral|t5xxl|clip_l|clip_g|qwen)", Pattern.CASE_INSENSITIVE);
         static final Pattern COMP_UNET = Pattern.compile("(unet|diffusion|model|transformer|base|transformer|upscale|esrgan|z_image|lumina|flux|dit|mochi|ltx|cosmos|hunyuan|hy|wan|hidream|aura|svd)", Pattern.CASE_INSENSITIVE);
         static final Pattern MD_LINK = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)", Pattern.CASE_INSENSITIVE);
-    }
-
-    private final Map<String, String> knownGoodUrls = new HashMap<>();
-
-    @PostConstruct
-    public void init() {
-        try (InputStream is = getClass().getResourceAsStream("/known_good_urls.json")) {
-            if (is != null) {
-                String json = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-                JSONObject jo = new JSONObject(json);
-                for (String key : jo.keySet()) {
-                    knownGoodUrls.put(key.toLowerCase(), jo.getString(key));
-                }
-            }
-        } catch (Exception e) {
-            System.err.println("Failed to load known_good_urls.json: " + e.getMessage());
-        }
+        static final Pattern NAKED_URL = Pattern.compile("(https?://[a-zA-Z0-9\\-\\.\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
     }
 
     @Override
     public List<ModelInfo> analyze(String jsonText, String fileName) {
-        // Fallback falls Spring Injection fehlt (Test-Modus)
-        if (aiService == null) aiService = new LocalAIService();
-        if (knownGoodUrls.isEmpty()) init(); // Fallback für Tests ohne Spring Context
-
         List<ModelInfo> results = new ArrayList<>();
         if (jsonText == null || jsonText.trim().isEmpty()) return results;
         try {
@@ -74,17 +50,17 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             applyGlobalContext(results, globalContext);
 
             for (ModelInfo info : results) {
-                String low = info.getName().toLowerCase();
-                Optional<ModelInfo> uploadedMatch = (modelListService != null) ? modelListService.findByFilename(info.getName()) : Optional.empty();
-                if (uploadedMatch.isPresent()) {
-                    ModelInfo match = uploadedMatch.get();
+                String name = info.getName();
+
+                Optional<ModelInfo> listMatch = (modelListService != null) ? modelListService.findByFilename(name) : Optional.empty();
+                if (listMatch.isPresent()) {
+                    ModelInfo match = listMatch.get();
                     info.setUrl(match.getUrl());
                     info.setSave_path(match.getSave_path());
-                    info.setPopularity("📂 USER DEFINED LIST");
-                } else if (knownGoodUrls.containsKey(low)) {
-                    info.setUrl(knownGoodUrls.get(low));
-                    info.setPopularity("🧠 AI VERIFIED OFFICIAL");
+                    info.setPopularity("📂 MODEL LIST MATCH");
                 } else {
+                    // Fallback to AI prediction if not in list
+                    if (aiService == null) aiService = new LocalAIService();
                     LocalAIService.Prediction prediction = aiService.predictProvider(info.getName());
                     info.setPopularity(prediction.getLabel());
                     
@@ -147,13 +123,6 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
         return null;
     }
 
-    private void applyContext(List<ModelInfo> res, String fn) {
-        if (fn == null) return;
-        String ctx = fn.toLowerCase().split("[_\\- ]")[0];
-        if (ctx.length() < 3) return;
-        for (ModelInfo i : res) if (i.getName().toLowerCase().contains(ctx) && i.getPopularity().contains("Community")) i.setPopularity("📌 Context Match: " + ctx);
-    }
-
     private void findModelsMetadata(Object obj, List<ModelInfo> res) {
         if (obj instanceof JSONObject) {
             JSONObject jo = (JSONObject) obj;
@@ -212,16 +181,13 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
         Matcher mdMatcher = ExpertPatterns.MD_LINK.matcher(v);
         while (mdMatcher.find()) {
             String name = mdMatcher.group(1);
-            String url = mdMatcher.group(2);
+            String url = fixUrl(mdMatcher.group(2));
             if (name.contains(".")) { // Nur wenn der Linktext wie ein Dateiname aussieht
                 String type = hint != null ? inferTypeFromKey(hint) : null;
-                
-                // NEW: Falls Typ unklar, versuche ihn aus der URL zu extrahieren (speziell HF)
                 if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/split_files/")) {
                     String sub = url.substring(url.indexOf("/split_files/") + 13);
                     if (sub.contains("/")) type = sub.substring(0, sub.indexOf("/"));
                 } else if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/")) {
-                    // Generischer Check für HF Ordner-Strukturen
                     String sub = url.substring(url.indexOf("/resolve/main/") + 14);
                     if (sub.contains("/")) {
                         String folder = sub.substring(0, sub.indexOf("/")).toLowerCase();
@@ -230,7 +196,21 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                         }
                     }
                 }
+                if (type == null) type = ctx;
+                addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", name, url));
+            }
+        }
 
+        // 2. Suche nach nackten URLs
+        Matcher nakedMatcher = ExpertPatterns.NAKED_URL.matcher(v);
+        while (nakedMatcher.find()) {
+            String url = fixUrl(nakedMatcher.group(1));
+            String name = url;
+            if (name.contains("?")) name = name.substring(0, name.indexOf("?"));
+            if (name.contains("/")) name = name.substring(name.lastIndexOf("/") + 1);
+            
+            if (name.length() > 3) {
+                String type = hint != null ? inferTypeFromKey(hint) : null;
                 if (type == null) type = ctx;
                 addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", name, url));
             }
@@ -256,8 +236,9 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                 String type = hint != null ? inferTypeFromKey(hint) : null;
                 if (type == null) type = ctx;
                 
-                // Verfeinerung basierend auf Dateinamen, aber nur wenn der Typ noch unklar oder zu allgemein ist
-                if (fLow.contains("vae_approx") || fLow.contains("vae-approx")) type = "vae_approx";
+                // Verfeinerung basierend auf Dateinamen (Höchste Priorität für Spezialmodelle)
+                if (fLow.contains("qwen-image-lightning")) type = "unet"; 
+                else if (fLow.contains("vae_approx") || fLow.contains("vae-approx")) type = "vae_approx";
                 else if (ExpertPatterns.COMP_VAE.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "vae";
                 else if (fLow.contains("clip_vision")) type = "clip_vision";
                 else if (ExpertPatterns.COMP_CLIP.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "clip";
@@ -316,14 +297,15 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private void addModelInfo(List<ModelInfo> res, ModelInfo info) {
         for (ModelInfo e : res) {
             if (e.getName().equalsIgnoreCase(info.getName())) {
-                // Wenn die neue Info eine echte URL hat, ist sie wahrscheinlich aus Metadaten -> Vorrang!
                 if (!info.getUrl().equals("MISSING")) {
                     e.setUrl(info.getUrl());
                     e.setType(info.getType());
                     e.setSave_path(info.getSave_path());
                 } else if (e.getUrl().equals("MISSING")) {
-                    // Falls beide keine URL haben, nimm den spezifischeren Pfad (nicht checkpoints)
-                    if ((e.getType() == null || e.getType().equals("checkpoints")) && info.getType() != null && !info.getType().equals("checkpoints")) {
+                    boolean isEWeak = e.getType() == null || e.getType().equals("checkpoints") || e.getType().equals("clip");
+                    boolean isInfoStrong = info.getType() != null && (info.getType().equals("unet") || info.getType().equals("checkpoints"));
+                    
+                    if (isEWeak && isInfoStrong) {
                         e.setType(info.getType());
                         e.setSave_path(info.getSave_path());
                     }
@@ -332,5 +314,13 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             }
         }
         res.add(info);
+    }
+
+    private String fixUrl(String url) {
+        if (url == null) return null;
+        if (url.contains("huggingface.co") && url.contains("/blob/")) {
+            return url.replace("/blob/", "/resolve/");
+        }
+        return url;
     }
 }

@@ -41,6 +41,26 @@ A robust, feature-rich Java Swing application designed to automate the process o
    java -jar target/comfymodeldownloader-1.0-SNAPSHOT.jar
    ```
 
+## 🏁 First Start & Model List Setup
+
+Upon your first launch, it is highly recommended to import a master model list. This list helps the application immediately recognize models and their correct download sources.
+
+1. **Prepare your JSON**: Create or obtain a `model-list.json` file. It should follow this structure:
+   ```json
+   {
+     "models": [
+       {
+         "name": "SDXL Base 1.0",
+         "filename": "sd_xl_base_1.0.safetensors",
+         "type": "checkpoints",
+         "url": "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0/resolve/main/sd_xl_base_1.0.safetensors"
+       }
+     ]
+   }
+   ```
+2. **Import**: Click the **Import Model List (JSON)...** button in the workflow panel.
+3. **Verification**: Once imported, the application will use this list as a primary reference for all future workflow analyses.
+
 ## 📖 How to Use
 
 1. **Setup Path**: Enter or browse to your local ComfyUI models directory.

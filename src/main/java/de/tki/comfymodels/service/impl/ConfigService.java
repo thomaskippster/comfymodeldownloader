@@ -84,7 +84,33 @@ public class ConfigService {
 
     public String getModelsPath() { return settings.optString("models_path", "C:\\pinokio\\api\\comfy.git\\app\\models"); }
     public void setModelsPath(String path) { settings.put("models_path", path); save(); }
-    
+
+    public boolean isBackgroundModeEnabled() { return settings.optBoolean("background_mode", false); }
+    public void setBackgroundModeEnabled(boolean enabled) { settings.put("background_mode", enabled); save(); }
+
+    public boolean isShutdownAfterDownloadEnabled() { return settings.optBoolean("shutdown_after_download", false); }
+    public void setShutdownAfterDownloadEnabled(boolean enabled) { settings.put("shutdown_after_download", enabled); save(); }
+
+    public void savePendingDownloads(String json) {
+        try {
+            Files.writeString(getFileInAppData("pending_downloads.json").toPath(), json, StandardCharsets.UTF_8);
+        } catch (Exception e) {
+            System.err.println("Error saving pending downloads: " + e.getMessage());
+        }
+    }
+
+    public String loadPendingDownloads() {
+        try {
+            File file = getFileInAppData("pending_downloads.json");
+            if (file.exists()) {
+                return Files.readString(file.toPath(), StandardCharsets.UTF_8);
+            }
+        } catch (Exception e) {
+            System.err.println("Error loading pending downloads: " + e.getMessage());
+        }
+        return null;
+    }
+
     public boolean isUnlocked() {
         return masterPassword != null;
     }

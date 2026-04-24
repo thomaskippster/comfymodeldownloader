@@ -111,11 +111,23 @@ public class DefaultDownloadManager implements IDownloadManager {
     }
 
     private void downloadWithResume(ModelInfo info, Path targetFile, int index, BiConsumer<Integer, String> statusUpdater) {
+        downloadWithResumeInternal(info, targetFile, index, statusUpdater, 0);
+    }
+
+    private void downloadWithResumeInternal(ModelInfo info, Path targetFile, int index, BiConsumer<Integer, String> statusUpdater, int retryCount) {
         try {
             if (waitForPauseAndCheckSelection(index, statusUpdater)) return;
 
             File file = targetFile.toFile();
             String hfToken = configService.getHfToken();
+
+            // Check disk space before starting
+            try {
+                long usableSpace = Files.getFileStore(targetFile.getParent().getRoot()).getUsableSpace();
+                if (usableSpace < 10L * 1024 * 1024 * 1024) { // 10 GB Buffer
+                    safeUpdateStatus(index, "⚠️ Low Disk Space (<10GB)", statusUpdater);
+                }
+            } catch (Exception ignored) {}
 
             if (file.exists() && file.length() < 10240) {
                 file.delete();
@@ -143,7 +155,25 @@ public class DefaultDownloadManager implements IDownloadManager {
 
             long totalRemoteSize = headResponse.headers().firstValueAsLong("Content-Length").orElse(0L);
 
+            // Double Check Disk Space against total size
+            try {
+                long usableSpace = Files.getFileStore(targetFile.getParent().getRoot()).getUsableSpace();
+                if (totalRemoteSize > 0 && usableSpace < totalRemoteSize) {
+                    safeUpdateStatus(index, "❌ No Space (" + formatSize(usableSpace) + " < " + formatSize(totalRemoteSize) + ")", statusUpdater);
+                    return;
+                }
+            } catch (Exception ignored) {}
+
             if (existingFileSize > 0 && totalRemoteSize > 0 && existingFileSize == totalRemoteSize) {
+                // Verification of existing file
+                if (info.getName().endsWith(".safetensors") && (existingFileSize % 2 != 0)) {
+                     if (retryCount < 1) {
+                         safeUpdateStatus(index, "🔄 Fixing Corrupted File...", statusUpdater);
+                         file.delete();
+                         downloadWithResumeInternal(info, targetFile, index, statusUpdater, retryCount + 1);
+                         return;
+                     }
+                }
                 safeUpdateStatus(index, "✅ Already exists", statusUpdater);
                 return;
             }
@@ -214,8 +244,18 @@ public class DefaultDownloadManager implements IDownloadManager {
             if (isStopped || !isSelected(index)) {
                 safeUpdateStatus(index, !isSelected(index) ? "Skipped (Unchecked)" : "Stopped", statusUpdater);
             } else {
-                if (totalBytes > 0 && file.length() < totalBytes) {
-                    safeUpdateStatus(index, "❌ Incomplete (" + formatSize(file.length()) + "/" + formatSize(totalBytes) + ")", statusUpdater);
+                long finalSize = file.length();
+                boolean sizeMismatch = totalBytes > 0 && finalSize < totalBytes;
+                boolean corruptedSafetensor = info.getName().endsWith(".safetensors") && (finalSize % 2 != 0);
+
+                if ((sizeMismatch || corruptedSafetensor) && retryCount < 1) {
+                    safeUpdateStatus(index, "🔄 Verification failed, redownloading...", statusUpdater);
+                    file.delete();
+                    downloadWithResumeInternal(info, targetFile, index, statusUpdater, retryCount + 1);
+                } else if (sizeMismatch) {
+                    safeUpdateStatus(index, "❌ Incomplete (" + formatSize(finalSize) + "/" + formatSize(totalBytes) + ")", statusUpdater);
+                } else if (corruptedSafetensor) {
+                    safeUpdateStatus(index, "❌ Corrupted (Odd Size)", statusUpdater);
                 } else {
                     safeUpdateStatus(index, "✅ Finished", statusUpdater);
                 }

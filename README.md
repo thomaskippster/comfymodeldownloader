@@ -10,16 +10,25 @@ Stop wasting time manually moving files! This tool automates your model manageme
 * **Background Mode:** Keep the downloader running in the system tray.
 * **Vault Security:** Encrypted storage for your API keys (Gemini, Hugging Face).
 
-## 📸 Preview
-*(Add a screenshot or GIF here to showcase the UI)*
+## 🚀 Getting Started
 
-## 🛠 Installation
+### Prerequisites
+* Java 17 or higher
+* Maven
+
+### Build and Run
 1. Clone this repo:
    ```bash
    git clone https://github.com/thomaskippster/comfymodeldownloader
    ```
-2. Build with Maven or run the provided executable.
-3. Set your models directory (e.g., `C:\pinokio\api\comfy.git\app\models`).
+2. Build the application:
+   ```bash
+   mvn clean package
+   ```
+3. Run the application:
+   ```bash
+   java -jar target/ComfyUIModelDownloader.jar
+   ```
 
 ## 💡 Why use this?
 Manually downloading GBs of data and navigating deep folder structures is tedious. This tool bridges the gap between finding a model and using it in your workflow instantly by analyzing your ComfyUI JSON or PNG files.

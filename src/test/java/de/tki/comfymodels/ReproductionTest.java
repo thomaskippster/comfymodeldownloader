@@ -37,8 +37,8 @@ public class ReproductionTest {
 
         List<ModelInfo> models = analyzer.analyze(json, "test.json");
 
-        // Erwartung: Nur EIN Eintrag für qwen_3_4b.safetensors
-        // Der Name darf NICHT die URL sein.
+        // Expectation: Only ONE entry for qwen_3_4b.safetensors
+        // The name must NOT be the URL.
         long count = models.stream()
                 .filter(m -> m.getName().toLowerCase().contains("qwen"))
                 .count();

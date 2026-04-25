@@ -1,5 +1,7 @@
 package de.tki.comfymodels.service.impl;
 
+import org.springframework.stereotype.Component;
+
 import javax.crypto.Cipher;
 import javax.crypto.SecretKey;
 import javax.crypto.SecretKeyFactory;
@@ -11,12 +13,13 @@ import java.security.SecureRandom;
 import java.security.spec.KeySpec;
 import java.util.Base64;
 
+@Component
 public class EncryptionUtils {
-    private static final int ITERATIONS = 65536;
-    private static final int KEY_LENGTH = 256;
-    private static final byte[] SALT = "ComfyUI-Vault-Salt-2026".getBytes(StandardCharsets.UTF_8); 
+    private final int ITERATIONS = 65536;
+    private final int KEY_LENGTH = 256;
+    private final byte[] SALT = "ComfyUI-Vault-Salt-2026".getBytes(StandardCharsets.UTF_8); 
 
-    public static String encrypt(String strToEncrypt, String password) throws Exception {
+    public String encrypt(String strToEncrypt, String password) throws Exception {
         byte[] iv = new byte[16];
         new SecureRandom().nextBytes(iv);
         IvParameterSpec ivspec = new IvParameterSpec(iv);
@@ -37,7 +40,7 @@ public class EncryptionUtils {
         return Base64.getEncoder().encodeToString(combined);
     }
 
-    public static String decrypt(String strToDecrypt, String password) throws Exception {
+    public String decrypt(String strToDecrypt, String password) throws Exception {
         if (strToDecrypt == null || strToDecrypt.trim().isEmpty()) {
             throw new Exception("Encrypted data is empty");
         }

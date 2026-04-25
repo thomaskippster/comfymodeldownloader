@@ -30,12 +30,13 @@ public class StatusTransitionTest {
     private String serverUrl;
     private Path tempDir;
     private ConfigService configService;
+    private final EncryptionUtils encryptionUtils = new EncryptionUtils();
 
     @BeforeEach
     public void setup() throws Exception {
         tempDir = Files.createTempDirectory("transition_test");
         downloadManager = new DefaultDownloadManager();
-        configService = new ConfigService();
+        configService = new ConfigService(encryptionUtils);
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
 
         // Setup Local Test Server
@@ -93,7 +94,7 @@ public class StatusTransitionTest {
     @Test
     public void testTransition_Idle_To_Searching_To_NotFound() throws InterruptedException {
         ModelSearchService searchService = new ModelSearchService();
-        ConfigService cfg = new ConfigService();
+        ConfigService cfg = new ConfigService(encryptionUtils);
         GeminiAIService gemini = new GeminiAIService();
         ModelListService list = new ModelListService();
         

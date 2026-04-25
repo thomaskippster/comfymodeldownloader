@@ -3,29 +3,29 @@ package de.tki.comfymodels.service;
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.DefaultDownloadManager;
+import de.tki.comfymodels.service.impl.EncryptionUtils;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
 import java.util.ArrayList;
-import java.util.Arrays;
-import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 public class DownloadSelectionTest {
 
+    private final EncryptionUtils encryptionUtils = new EncryptionUtils();
+
     @Test
     public void testOnlySelectedItemsAreProcessed() throws InterruptedException {
         DefaultDownloadManager downloadManager = new DefaultDownloadManager();
         
         // Mocking ConfigService to avoid NPE
-        ConfigService configService = new ConfigService();
+        ConfigService configService = new ConfigService(encryptionUtils);
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
         
         List<ModelInfo> models = new ArrayList<>();
@@ -61,7 +61,7 @@ public class DownloadSelectionTest {
     @Test
     public void testDynamicUncheckWhilePaused() throws InterruptedException {
         DefaultDownloadManager downloadManager = new DefaultDownloadManager();
-        ConfigService configService = new ConfigService();
+        ConfigService configService = new ConfigService(encryptionUtils);
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
         
         List<ModelInfo> models = new ArrayList<>();

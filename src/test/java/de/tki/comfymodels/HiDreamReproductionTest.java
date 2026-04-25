@@ -27,8 +27,8 @@ public class HiDreamReproductionTest {
         ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
         List<ModelInfo> models = analyzer.analyze(json, "workflow.json");
 
-        // Wir erwarten 7 Modelle: 1 UNET, 4 CLIPs, 1 VAE (aus Loadern) UND 1 UNET (aus der MarkdownNote)
-        assertEquals(7, models.size(), "Should detect 7 models (including one from MarkdownNote)");
+        // We expect 6 models: 1 UNET, 4 CLIPs, 1 VAE (from loaders). The UNET in MarkdownNote is now ignored.
+        assertEquals(6, models.size(), "Should detect 6 models (ignoring one from MarkdownNote)");
 
         boolean foundUnet = false;
         int clipsFound = 0;
@@ -51,7 +51,7 @@ public class HiDreamReproductionTest {
         assertTrue(foundVae, "VAE not found");
         assertEquals(4, clipsFound, "Should find 4 CLIP/TextEncoder models");
         
-        // Überprüfe ob der Kontext "hidream" erkannt wurde
+        // Check if context "hidream" was detected
         boolean contextDetected = false;
         for (ModelInfo m : models) {
             System.out.println("Model: " + m.getName() + " | Popularity: " + m.getPopularity());

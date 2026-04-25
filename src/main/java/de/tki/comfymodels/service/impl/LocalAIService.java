@@ -1,15 +1,17 @@
 package de.tki.comfymodels.service.impl;
 
 import org.springframework.stereotype.Service;
+import jakarta.annotation.PostConstruct;
 import java.util.*;
 
 @Service
 public class LocalAIService {
 
-    private static final Map<String, String[]> KNOWLEDGE_BASE = new LinkedHashMap<>();
-    private static final Map<String, Double> GLOBAL_IDF = new HashMap<>();
+    private final Map<String, String[]> KNOWLEDGE_BASE = new LinkedHashMap<>();
+    private final Map<String, Double> GLOBAL_IDF = new HashMap<>();
 
-    static {
+    @PostConstruct
+    public void init() {
         // --- TOP RESEARCH LABS ---
         add("black-forest-labs", "flux, flux1, flux2, bfl, schnell, dev, pro, mistral");
         add("stabilityai", "sdxl, sd15, sd21, sd3, svd, cascade, turbo, lightning, stable, diffusion");
@@ -32,11 +34,11 @@ public class LocalAIService {
         calculateIdf();
     }
 
-    private static void add(String provider, String keywords) {
+    private void add(String provider, String keywords) {
         KNOWLEDGE_BASE.put(provider, keywords.split(", "));
     }
 
-    private static void calculateIdf() {
+    private void calculateIdf() {
         Set<String> allTerms = new HashSet<>();
         for (String[] terms : KNOWLEDGE_BASE.values()) allTerms.addAll(Arrays.asList(terms));
         int docCount = KNOWLEDGE_BASE.size();
@@ -48,7 +50,7 @@ public class LocalAIService {
 
     public Prediction predictProvider(String fileName) {
         String name = fileName.toLowerCase();
-        // Spezial-Check für komplexe Dateinamen
+        // Special check for complex filenames
         if (name.contains("mistral") && name.contains("flux2")) return new Prediction("black-forest-labs", 0.95);
         if (name.contains("pony") || name.contains("v6")) return new Prediction("PonyDiffusion", 0.85);
 
@@ -78,7 +80,7 @@ public class LocalAIService {
         return new Prediction(bestProvider, Math.min(0.99, maxScore / 3.5));
     }
 
-    public static class Prediction {
+    public class Prediction {
         public final String provider;
         public final double confidence;
         public Prediction(String provider, double confidence) { this.provider = provider; this.confidence = confidence; }

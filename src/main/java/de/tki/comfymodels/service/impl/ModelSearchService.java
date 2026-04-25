@@ -221,8 +221,8 @@ public class ModelSearchService implements IModelSearchService {
     public String formatSize(long bytes) {
         if (bytes == -401) return "🔒 Auth Required";
         if (bytes <= 0) return "Unknown";
-        if (bytes > 1024L * 1024L * 1024L) return String.format("%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0);
-        return String.format("%.2f MB", bytes / 1024.0 / 1024.0);
+        if (bytes >= 1024L * 1024L * 1024L) return String.format(Locale.US, "%.2f GB", bytes / 1024.0 / 1024.0 / 1024.0);
+        return String.format(Locale.US, "%.2f MB", bytes / 1024.0 / 1024.0);
     }
 
     private boolean fetchHuggingFaceUrlInSpecificRepo(ModelInfo info, int rowIndex, String repoId,

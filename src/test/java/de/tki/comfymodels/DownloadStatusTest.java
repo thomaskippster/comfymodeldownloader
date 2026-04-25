@@ -4,6 +4,7 @@ import com.sun.net.httpserver.HttpServer;
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.DefaultDownloadManager;
+import de.tki.comfymodels.service.impl.EncryptionUtils;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -15,7 +16,6 @@ import java.lang.reflect.Field;
 import java.net.InetSocketAddress;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -36,8 +36,9 @@ public class DownloadStatusTest {
         tempDir = Files.createTempDirectory("downloader_test");
         downloadManager = new DefaultDownloadManager();
         
-        // Use real ConfigService
-        ConfigService configService = new ConfigService();
+        // Use real ConfigService and EncryptionUtils
+        EncryptionUtils encryptionUtils = new EncryptionUtils();
+        ConfigService configService = new ConfigService(encryptionUtils);
         
         Field field = DefaultDownloadManager.class.getDeclaredField("configService");
         field.setAccessible(true);
@@ -50,7 +51,7 @@ public class DownloadStatusTest {
             exchange.getResponseHeaders().add("Content-Length", String.valueOf(data.length));
             exchange.sendResponseHeaders(200, data.length);
             try (OutputStream os = exchange.getResponseBody()) {
-                // Sende Daten langsam, damit wir Pause/Stop testen können
+                // Send data slowly so we can test pause/stop
                 for (int i = 0; i < 10; i++) {
                     os.write(data, i * (data.length / 10), data.length / 10);
                     os.flush();
@@ -86,7 +87,7 @@ public class DownloadStatusTest {
             finishedLatch::countDown
         );
 
-        // 1. Prüfe auf Start/Download
+        // 1. Check for Start/Download
         Thread.sleep(300);
         assertTrue(capturedStatus.stream().anyMatch(s -> s.contains("Downloading")), "Should show Downloading status");
 

@@ -65,14 +65,14 @@ public class GeminiAIService {
             String context = metadataContext != null ? metadataContext : "No context";
             String shortContext = context.length() > 25000 ? context.substring(0, 25000) : context;
 
-            String prompt = "Websuche: Ermittle das offizielle Hugging Face Repository für die Datei '" + modelName + "'.\n\n" +
-                    "KONTEXT:\n" +
-                    "Workflow-Datei: " + fileName + "\n" +
-                    "Workflow-Daten: " + shortContext + "\n\n" +
-                    "ANWEISUNG:\n" +
-                    "1. Identifiziere das exakte Hugging Face Repository (z.B. black-forest-labs/FLUX.1-schnell).\n" +
-                    "2. Antworte NUR mit der Repository ID (Format: creator/repo) oder 'UNKNOWN'.\n" +
-                    "3. Wenn du einen direkten Download-Link findest, gib diesen stattdessen aus.";
+            String prompt = "Web search: Determine the official Hugging Face repository for the file '" + modelName + "'.\n\n" +
+                    "CONTEXT:\n" +
+                    "Workflow file: " + fileName + "\n" +
+                    "Workflow data: " + shortContext + "\n\n" +
+                    "INSTRUCTION:\n" +
+                    "1. Identify the exact Hugging Face repository (e.g., black-forest-labs/FLUX.1-schnell).\n" +
+                    "2. Respond ONLY with the repository ID (format: creator/repo) or 'UNKNOWN'.\n" +
+                    "3. If you find a direct download link, output it instead.";
 
             JSONObject payload = new JSONObject();
             JSONArray contents = new JSONArray();

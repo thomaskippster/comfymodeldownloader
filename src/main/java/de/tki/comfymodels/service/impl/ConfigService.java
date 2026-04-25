@@ -91,6 +91,9 @@ public class ConfigService {
     public boolean isShutdownAfterDownloadEnabled() { return settings.optBoolean("shutdown_after_download", false); }
     public void setShutdownAfterDownloadEnabled(boolean enabled) { settings.put("shutdown_after_download", enabled); save(); }
 
+    public boolean isDarkMode() { return settings.optBoolean("dark_mode", true); }
+    public void setDarkMode(boolean enabled) { settings.put("dark_mode", enabled); save(); }
+
     public void savePendingDownloads(String json) {
         try {
             Files.writeString(getFileInAppData("pending_downloads.json").toPath(), json, StandardCharsets.UTF_8);

@@ -9,6 +9,10 @@ import de.tki.comfymodels.service.IModelSearchService;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.GeminiAIService;
 import de.tki.comfymodels.service.impl.ModelListService;
+import com.formdev.flatlaf.FlatDarkLaf;
+import com.formdev.flatlaf.FlatLightLaf;
+import com.formdev.flatlaf.FlatLaf;
+import com.formdev.flatlaf.extras.FlatAnimatedLafChange;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -59,6 +63,7 @@ public class Main extends JFrame {
     private JPasswordField hfTokenField;
     private JCheckBox backgroundCheck;
     private JCheckBox shutdownCheck;
+    private JCheckBox darkCheck;
     private JLabel activeAiModelLabel;
     private JTextArea jsonInputArea;
     private DefaultTableModel tableModel;
@@ -86,13 +91,22 @@ public class Main extends JFrame {
             }
         }
 
-        try {
-            UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName());
-        } catch (Exception e) {}
-
         if (!promptForPassword()) {
             System.exit(0);
         }
+
+        // Apply theme before UI initialization
+        if (configService.isDarkMode()) {
+            FlatDarkLaf.setup();
+        } else {
+            FlatLightLaf.setup();
+        }
+        
+        // Modern UI tweaks
+        UIManager.put("Button.arc", 8);
+        UIManager.put("Component.arc", 8);
+        UIManager.put("TextComponent.arc", 8);
+        UIManager.put("ProgressBar.arc", 8);
         
         SwingUtilities.invokeLater(() -> {
             initUI();
@@ -225,6 +239,9 @@ public class Main extends JFrame {
         if (shutdownCheck != null) {
             shutdownCheck.setSelected(configService.isShutdownAfterDownloadEnabled());
         }
+        if (darkCheck != null) {
+            darkCheck.setSelected(configService.isDarkMode());
+        }
     }
 
     private void updateAiModelDisplay() {
@@ -238,9 +255,12 @@ public class Main extends JFrame {
         setTitle("ComfyUIModel-Downloader");
         setSize(1450, 1000);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
-        setLayout(new BorderLayout());
+        
+        JPanel mainContainer = new JPanel(new BorderLayout(10, 10));
+        mainContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        setContentPane(mainContainer);
 
-        JPanel settingsPanel = new JPanel(new GridLayout(4, 1));
+        JPanel settingsPanel = new JPanel(new GridLayout(4, 1, 5, 5));
 
         JPanel pathRow = new JPanel(new BorderLayout());
         pathRow.setBorder(BorderFactory.createTitledBorder("Models Directory"));
@@ -310,10 +330,26 @@ public class Main extends JFrame {
         shutdownCheck = new JCheckBox("Shutdown after Queue");
         shutdownCheck.addActionListener(e -> configService.setShutdownAfterDownloadEnabled(shutdownCheck.isSelected()));
 
+        darkCheck = new JCheckBox("Dark Mode");
+        darkCheck.addActionListener(e -> {
+            boolean isDark = darkCheck.isSelected();
+            configService.setDarkMode(isDark);
+            
+            FlatAnimatedLafChange.showSnapshot();
+            if (isDark) {
+                FlatDarkLaf.setup();
+            } else {
+                FlatLightLaf.setup();
+            }
+            FlatLaf.updateUI();
+            FlatAnimatedLafChange.hideSnapshotWithAnimation();
+        });
+
         infoRow.add(helpBtn);
         infoRow.add(verifyBtn);
         infoRow.add(backgroundCheck);
         infoRow.add(shutdownCheck);
+        infoRow.add(darkCheck);
 
         settingsPanel.add(pathRow);
         settingsPanel.add(apiRow);
@@ -460,9 +496,9 @@ public class Main extends JFrame {
         bottomPanel.add(progressPanel, BorderLayout.CENTER);
         bottomPanel.add(actionButtons, BorderLayout.EAST);
 
-        add(settingsPanel, BorderLayout.NORTH);
-        add(splitPane, BorderLayout.CENTER);
-        add(bottomPanel, BorderLayout.SOUTH);
+        mainContainer.add(settingsPanel, BorderLayout.NORTH);
+        mainContainer.add(splitPane, BorderLayout.CENTER);
+        mainContainer.add(bottomPanel, BorderLayout.SOUTH);
     }
 
     private void performSystemShutdown() {

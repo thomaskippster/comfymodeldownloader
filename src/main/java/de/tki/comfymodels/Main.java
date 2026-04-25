@@ -101,8 +101,10 @@ public class Main extends JFrame {
         } else {
             FlatLightLaf.setup();
         }
+        FlatLaf.updateUI();
         
         // Modern UI tweaks
+        UIManager.put("TitlePane.unifiedBackground", true);
         UIManager.put("Button.arc", 8);
         UIManager.put("Component.arc", 8);
         UIManager.put("TextComponent.arc", 8);
@@ -255,6 +257,9 @@ public class Main extends JFrame {
         setTitle("ComfyUIModel-Downloader");
         setSize(1450, 1000);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
+
+        // Enable FlatLaf window decorations for this frame
+        getRootPane().putClientProperty("flatlaf.useWindowDecorations", true);
         
         JPanel mainContainer = new JPanel(new BorderLayout(10, 10));
         mainContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
@@ -295,7 +300,7 @@ public class Main extends JFrame {
         pathRow.add(pathButtons, BorderLayout.EAST);
 
         JPanel apiRow = new JPanel(new BorderLayout());
-        apiRow.setBorder(BorderFactory.createTitledBorder("Gemini AI API Key"));
+        apiRow.setBorder(BorderFactory.createTitledBorder("Gemini AI API Key (Optional)"));
         geminiKeyField = new JPasswordField();
         JButton saveGeminiBtn = new JButton("Save & Discover");
         saveGeminiBtn.addActionListener(e -> {
@@ -306,7 +311,7 @@ public class Main extends JFrame {
         apiRow.add(saveGeminiBtn, BorderLayout.EAST);
 
         JPanel hfRow = new JPanel(new BorderLayout());
-        hfRow.setBorder(BorderFactory.createTitledBorder("Hugging Face Access Token"));
+        hfRow.setBorder(BorderFactory.createTitledBorder("Hugging Face Access Token (Optional)"));
         hfTokenField = new JPasswordField();
         JButton saveHfBtn = new JButton("Save HF Token");
         saveHfBtn.addActionListener(e -> {
@@ -330,6 +335,7 @@ public class Main extends JFrame {
         shutdownCheck = new JCheckBox("Shutdown after Queue");
         shutdownCheck.addActionListener(e -> configService.setShutdownAfterDownloadEnabled(shutdownCheck.isSelected()));
 
+        // Most important feature (irony): Dark mode for Reddit... or at least for this tool.
         darkCheck = new JCheckBox("Dark Mode");
         darkCheck.addActionListener(e -> {
             boolean isDark = darkCheck.isSelected();
@@ -411,7 +417,7 @@ public class Main extends JFrame {
         JTable modelTable = new JTable(tableModel);
         modelTable.putClientProperty("terminateEditOnFocusLost", Boolean.TRUE);
         
-        // Sofortiger Abbruch des Editors bei Klick, um Wert zu übernehmen
+        // Immediate termination of the editor on click to apply the value
         modelTable.addMouseListener(new MouseAdapter() {
             @Override
             public void mouseReleased(MouseEvent e) {
@@ -566,13 +572,25 @@ public class Main extends JFrame {
             String status = info.getUrl().equals("MISSING") ? "Idle" : "✅ Known Good";
             boolean isSelected = true;
             Path localPath = Paths.get(baseModelsPath, info.getSave_path() != null ? info.getSave_path() : type, info.getName());
-            if (Files.exists(localPath)) {
+            boolean existsLocally = Files.exists(localPath);
+            
+            if (existsLocally) {
                 status = "✅ Already exists";
                 isSelected = false; // Deselect if already present
+                try {
+                    long localSizeBytes = Files.size(localPath);
+                    info.setSize(searchService.formatSize(localSizeBytes));
+                } catch (IOException e) {
+                    info.setSize("Local (Error)");
+                }
             }
             
             tableModel.addRow(new Object[]{isSelected, info.getType(), info.getName(), info.getSize(), info.getPopularity(), targetSubDir, info.getUrl(), status});
-            if (!info.getUrl().equals("MISSING")) fetchSizeInBackground(info, i);
+            
+            // Only fetch remote size if NOT already existing locally
+            if (!existsLocally && !info.getUrl().equals("MISSING")) {
+                fetchSizeInBackground(info, i);
+            }
         }
         downloadButton.setEnabled(!modelsToDownload.isEmpty());
     }
@@ -695,26 +713,38 @@ public class Main extends JFrame {
     }
 
     private void showHelpDialog() {
-        String helpText = "<html><body style='width: 500px; padding: 10px;'>" +
-                "<h1>ComfyUIModel-Downloader Help</h1>" +
-                "<h3>Core Features</h3>" +
+        String helpText = "<html><body style='width: 600px; padding: 10px;'>" +
+                "<h1 style='color: #ff69b4;'>ComfyUI Model Downloader Help</h1>" +
+                "<p>This tool automates the process of finding and downloading models required for your ComfyUI workflows.</p>" +
+                
+                "<h3>🚀 Core Features</h3>" +
                 "<ul>" +
-                "  <li><b>Workflow Analysis:</b> Drag and drop ComfyUI JSON or PNG files to extract required models.</li>" +
-                "  <li><b>Deep Search:</b> Uses AI and multi-platform searching (Hugging Face, Civitai) to find missing model URLs.</li>" +
-                "  <li><b>Model List Integration:</b> Match models against your own known-good local lists.</li>" +
-                "  <li><b>Queue Management:</b> Download multiple models simultaneously with pause/resume support.</li>" +
+                "  <li><b>Smart Extraction:</b> Drag and drop <b>JSON</b> or <b>PNG</b> workflow files. The tool extracts models even from PNG metadata.</li>" +
+                "  <li><b>Deep Search:</b> Automatically finds URLs on <b>Hugging Face</b> (Official & Community) and <b>Civitai</b>.</li>" +
+                "  <li><b>AI Scouting:</b> Uses Gemini AI to understand the workflow context and find the exact right model versions.</li>" +
+                "  <li><b>Auto-Organization:</b> Automatically sorts models into correct subfolders (<code>checkpoints</code>, <code>loras</code>, <code>vae</code>, <code>controlnet</code>, etc.).</li>" +
+                "  <li><b>Existing File Detection:</b> Detects models you already have, calculates their local size, and prevents redundant downloads.</li>" +
                 "</ul>" +
-                "<h3>API Keys & Security</h3>" +
+
+                "<h3>🛡️ Quality & Security</h3>" +
                 "<ul>" +
-                "  <li><b>Gemini API Key:</b> Required for the 'AI Scouting' feature. Gemini analyzes your workflow context " +
-                "      to predict the best repositories for obscure models.</li>" +
-                "  <li><b>Hugging Face Token:</b> Recommended to avoid rate limits and to access gated repositories " +
-                "      (like some FLUX or StabilityAI models).</li>" +
-                "  <li><b>Local Storage (Vault):</b> All keys and settings are stored <b>locally</b> on your machine " +
-                "      in an encrypted file (<code>settings.vault</code>). They are never sent to any server except " +
-                "      the official Google/Hugging Face APIs during requests.</li>" +
-                "  <li><b>Password Protection:</b> Your vault is protected by the password you choose at startup. " +
-                "      Without this password, the API keys cannot be decrypted.</li>" +
+                "  <li><b>Model Verification:</b> Use the <b>Verify</b> button to scan your local models for corrupted files (e.g., interrupted downloads or broken Safetensors).</li>" +
+                "  <li><b>Encrypted Vault:</b> Your optional API keys are stored in <code>settings.vault</code> using <b>AES-256</b> encryption, protected by your master password.</li>" +
+                "  <li><b>Privacy First:</b> No data is ever sent to third-party servers except for official API requests to Google, Hugging Face, or Civitai.</li>" +
+                "</ul>" +
+
+                "<h3>⚙️ Advanced Settings</h3>" +
+                "<ul>" +
+                "  <li><b>Background Mode:</b> Close the window to keep the downloader running in the <b>System Tray</b>.</li>" +
+                "  <li><b>Auto-Shutdown:</b> Automatically shut down your PC after the download queue is finished.</li>" +
+                "  <li><b>Dark Mode:</b> Modern dark interface for better workflow integration.</li>" +
+                "  <li><b>Model List Import:</b> Import your own JSON/CSV lists to prioritize your trusted sources.</li>" +
+                "</ul>" +
+
+                "<h3>🔑 API Keys (Optional)</h3>" +
+                "<ul>" +
+                "  <li><b>Gemini Key:</b> Recommended for the best 'AI Scouting' results and repository discovery.</li>" +
+                "  <li><b>HF Token:</b> Required to download <b>Gated Models</b> (like FLUX.1-dev or certain SD3 versions).</li>" +
                 "</ul>" +
                 "</body></html>";
 
@@ -731,6 +761,9 @@ public class Main extends JFrame {
     }
 
     public static void main(String[] args) {
+        // Enable modern window decorations BEFORE anything else
+        com.formdev.flatlaf.FlatLaf.setUseNativeWindowDecorations(true);
+
         AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext(AppConfig.class);   
         Main main = context.getBean(Main.class);
         main.launch(args);

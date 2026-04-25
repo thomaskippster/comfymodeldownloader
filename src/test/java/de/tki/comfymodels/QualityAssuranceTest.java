@@ -13,7 +13,7 @@ public class QualityAssuranceTest {
     public void testFalsePositiveFiltering() {
         ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
         
-        // Workflow mit "None" und "default" Werten in Widgets
+        // Workflow with "None" and "default" values in widgets
         String json = "{" +
             "\"nodes\": [" +
             "  {\"id\": 1, \"type\": \"CheckpointLoaderSimple\", \"widgets_values\": [\"None\", \"default\"]}," +
@@ -23,7 +23,7 @@ public class QualityAssuranceTest {
         
         List<ModelInfo> models = analyzer.analyze(json, "test.json");
         
-        // Es sollte nur "test.safetensors" gefunden werden
+        // Only "test.safetensors" should be found
         assertEquals(1, models.size(), "Should only find one real model");
         assertEquals("test.safetensors", models.get(0).getName());
     }
@@ -32,12 +32,12 @@ public class QualityAssuranceTest {
     public void testMalformedJsonHandling() {
         ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
         
-        // Kaputtes JSON
-        String json = "{ \"nodes\": [ { \"id\": 1, \"type\": \"VAELoader\", \"widgets_values\": [\"ae.safetensors\""; // Fehlende Klammern
+        // Broken JSON
+        String json = "{ \"nodes\": [ { \"id\": 1, \"type\": \"VAELoader\", \"widgets_values\": [\"ae.safetensors\""; // Missing brackets
         
         List<ModelInfo> models = analyzer.analyze(json, "broken.json");
         
-        // Sollte nicht abstürzen, sondern einfach 0 oder gefundene Modelle (je nach Parser-Robustheit) zurückgeben
+        // Should not crash, but simply return 0 or found models (depending on parser robustness)
         assertNotNull(models);
     }
 }

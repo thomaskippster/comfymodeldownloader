@@ -14,7 +14,7 @@ import java.util.regex.Pattern;
 @Service
 public class ComfyModelAnalyzer implements IModelAnalyzer {
     
-    @Autowired(required = false)
+    @Autowired
     private LocalAIService aiService;
 
     @Autowired
@@ -23,14 +23,12 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     @Autowired(required = false)
     private GeminiAIService geminiService;
 
-    private static final class ExpertPatterns {
-        static final Pattern FILE = Pattern.compile("([a-zA-Z0-9_\\-\\.\\/]+\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))", Pattern.CASE_INSENSITIVE);
-        static final Pattern COMP_VAE = Pattern.compile("(vae|tokenizer|autoencoder)", Pattern.CASE_INSENSITIVE);
-        static final Pattern COMP_CLIP = Pattern.compile("(clip|t5|text_encoder|llama|gemma|mistral|t5xxl|clip_l|clip_g|qwen)", Pattern.CASE_INSENSITIVE);
-        static final Pattern COMP_UNET = Pattern.compile("(unet|diffusion|model|transformer|base|transformer|upscale|esrgan|z_image|lumina|flux|dit|mochi|ltx|cosmos|hunyuan|hy|wan|hidream|aura|svd)", Pattern.CASE_INSENSITIVE);
-        static final Pattern MD_LINK = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)", Pattern.CASE_INSENSITIVE);
-        static final Pattern NAKED_URL = Pattern.compile("(https?://[a-zA-Z0-9\\-\\.\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
-    }
+    private final Pattern FILE_PATTERN = Pattern.compile("([a-zA-Z0-9_\\-\\.\\/]+\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))", Pattern.CASE_INSENSITIVE);
+    private final Pattern COMP_VAE_PATTERN = Pattern.compile("(vae|tokenizer|autoencoder|encoder|decoder)", Pattern.CASE_INSENSITIVE);
+    private final Pattern COMP_CLIP_PATTERN = Pattern.compile("(clip|text.encoder|t5|llama|gemma|mistral|qwen|bert|vit|embed)", Pattern.CASE_INSENSITIVE);
+    private final Pattern COMP_UNET_PATTERN = Pattern.compile("(unet|diffusion|transformer|dit|model|base|upscale|esrgan|resnet|sampling)", Pattern.CASE_INSENSITIVE);
+    private final Pattern MD_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)", Pattern.CASE_INSENSITIVE);
+    private final Pattern NAKED_URL_PATTERN = Pattern.compile("(https?://[a-zA-Z0-9\\-\\.\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
 
     @Override
     public List<ModelInfo> analyze(String jsonText, String fileName) {
@@ -40,13 +38,12 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             JSONObject jo = parseJson(jsonText);
             if (jo == null) return results;
 
-            // NEW: Globale Kontext-Erkennung vor der Analyse
+            // Global context detection based on frequency/filename rather than hardcoded list
             String globalContext = extractGlobalContext(jo, fileName);
 
             findModelsMetadata(jo, results);
             scanForModelFiles(jo, null, results);
             
-            // Wende globalen Kontext auf alle Ergebnisse an
             applyGlobalContext(results, globalContext);
 
             for (ModelInfo info : results) {
@@ -59,13 +56,12 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     info.setSave_path(match.getSave_path());
                     info.setPopularity("📂 MODEL LIST MATCH");
                 } else {
-                    // Fallback to AI prediction if not in list
-                    if (aiService == null) aiService = new LocalAIService();
-                    LocalAIService.Prediction prediction = aiService.predictProvider(info.getName());
-                    info.setPopularity(prediction.getLabel());
+                    if (aiService != null) {
+                        LocalAIService.Prediction prediction = aiService.predictProvider(info.getName());
+                        info.setPopularity(prediction.getLabel());
+                    }
                     
-                    // Falls die Popularität noch generisch ist, füge den Kontext hinzu
-                    if (globalContext != null && !globalContext.isEmpty() && info.getPopularity().contains("Community")) {
+                    if (globalContext != null && !globalContext.isEmpty() && info.getPopularity() != null && info.getPopularity().contains("Community")) {
                         info.setPopularity("✨ Context: " + globalContext + " (" + info.getPopularity() + ")");
                     }
                 }
@@ -75,26 +71,22 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     }
 
     private String extractGlobalContext(JSONObject jo, String fileName) {
-        Map<String, Integer> hints = new HashMap<>();
-        
-        // 1. Aus Dateiname (höchste Prio)
+        // Generic approach: extract the most significant prefix from filename or content
         if (fileName != null && !fileName.toLowerCase().startsWith("workflow")) {
             String base = fileName.split("[_\\- ]")[0].toLowerCase();
             if (base.length() >= 3) return base;
         }
 
-        // 2. Scan den ganzen JSON nach signifikanten Schlüsselwörtern
+        // Scan for frequently occurring specific terms in class_types (that are not standard keywords)
+        Map<String, Integer> counts = new HashMap<>();
         String fullText = jo.toString().toLowerCase();
-        String[] keywords = {"hidream", "flux", "auraflow", "sd3", "hunyuan", "mochi", "ltxv", "cosmos", "wan2.1"};
-        for (String kw : keywords) {
-            if (fullText.contains(kw)) hints.put(kw, hints.getOrDefault(kw, 0) + 5);
+        // Look for common architecture names as hints
+        String[] archHints = {"flux", "sdxl", "sd15", "sd3", "hunyuan", "mochi", "ltx", "cosmos", "wan", "hidream", "aura", "lumina"};
+        for (String hint : archHints) {
+            if (fullText.contains(hint)) counts.put(hint, counts.getOrDefault(hint, 0) + 1);
         }
 
-        // 3. Scan Node-Typen
-        String nodesText = fullText;
-        if (nodesText.contains("hidream")) hints.put("hidream", hints.getOrDefault("hidream", 0) + 10);
-        
-        return hints.entrySet().stream()
+        return counts.entrySet().stream()
                 .max(Map.Entry.comparingByValue())
                 .map(Map.Entry::getKey)
                 .orElse(null);
@@ -103,10 +95,10 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private void applyGlobalContext(List<ModelInfo> res, String ctx) {
         if (ctx == null) return;
         for (ModelInfo i : res) {
-            // Wenn der Dateiname den Kontext enthält oder der Dateiname sehr generisch ist (wie ae.safetensors)
             String n = i.getName().toLowerCase();
-            if (n.contains(ctx) || n.equals("ae.safetensors") || n.contains("clip_l") || n.contains("t5xxl")) {
-                if (i.getPopularity() == null || i.getPopularity().isEmpty()) {
+            // If filename matches context or is a generic model file
+            if (n.contains(ctx) || n.startsWith("ae.") || n.contains("clip_") || n.contains("t5") || n.contains("diffusion")) {
+                if (i.getPopularity() == null || i.getPopularity().isEmpty() || i.getPopularity().contains("Community")) {
                     i.setPopularity("✨ Context: " + ctx);
                 }
             }
@@ -133,7 +125,6 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     if (m != null) {
                         String n = m.optString("name", m.optString("filename"));
                         if (n != null && !n.isEmpty()) {
-                            // Strikte Übernahme des Pfades aus den Metadaten
                             String rawPath = m.optString("directory", m.optString("type", "checkpoints"));
                             ModelInfo info = new ModelInfo(rawPath, n, m.optString("url", "MISSING"));
                             info.setSave_path(rawPath);
@@ -153,6 +144,12 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
         if (obj instanceof JSONObject) {
             JSONObject jo = (JSONObject) obj;
             String node = jo.optString("class_type", jo.optString("type", null));
+            
+            // Ignore information from markdown notes as requested
+            if (node != null && (node.equalsIgnoreCase("MarkdownNote") || node.equalsIgnoreCase("Note"))) {
+                return;
+            }
+
             String curCtx = node != null ? (inferTypeFromNode(node) != null ? inferTypeFromNode(node) : ctx) : ctx;
             if (jo.has("widgets_values")) {
                 JSONArray ws = jo.optJSONArray("widgets_values");
@@ -174,24 +171,19 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
         if (v == null || v.trim().isEmpty()) return;
         String vLow = v.toLowerCase().trim();
         
-        // Ignoriere Standardwerte, die keine Dateinamen sind
         if (vLow.equals("none") || vLow.equals("default") || vLow.equals("undefined") || vLow.length() < 4) return;
 
-        // 1. Suche nach Markdown Links: [Name](URL)
-        Matcher mdMatcher = ExpertPatterns.MD_LINK.matcher(v);
+        Matcher mdMatcher = MD_LINK_PATTERN.matcher(v);
         while (mdMatcher.find()) {
             String name = mdMatcher.group(1);
             String url = fixUrl(mdMatcher.group(2));
-            if (name.contains(".")) { // Nur wenn der Linktext wie ein Dateiname aussieht
+            if (name.contains(".")) {
                 String type = hint != null ? inferTypeFromKey(hint) : null;
-                if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/split_files/")) {
-                    String sub = url.substring(url.indexOf("/split_files/") + 13);
-                    if (sub.contains("/")) type = sub.substring(0, sub.indexOf("/"));
-                } else if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/")) {
+                if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/")) {
                     String sub = url.substring(url.indexOf("/resolve/main/") + 14);
                     if (sub.contains("/")) {
                         String folder = sub.substring(0, sub.indexOf("/")).toLowerCase();
-                        if (folder.equals("loras") || folder.equals("vae") || folder.equals("checkpoints") || folder.equals("text_encoders") || folder.equals("diffusion_models") || folder.equals("controlnet")) {
+                        if (folder.matches("(loras|vae|checkpoints|text_encoders|diffusion_models|controlnet|embeddings|upscale_models)")) {
                             type = folder;
                         }
                     }
@@ -201,8 +193,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             }
         }
 
-        // 2. Suche nach nackten URLs
-        Matcher nakedMatcher = ExpertPatterns.NAKED_URL.matcher(v);
+        Matcher nakedMatcher = NAKED_URL_PATTERN.matcher(v);
         while (nakedMatcher.find()) {
             String url = fixUrl(nakedMatcher.group(1));
             String name = url;
@@ -216,33 +207,26 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             }
         }
 
-        Matcher m = ExpertPatterns.FILE.matcher(v);
+        Matcher m = FILE_PATTERN.matcher(v);
         while (m.find()) {
             String match = m.group(1);
-            
-            // Ignoriere offensichtliche URLs (wir wollen nur Dateinamen)
             if (match.startsWith("http") || match.startsWith("//")) continue;
 
-            // Extrahiere nur den reinen Dateinamen, falls ein Pfad gematcht wurde
             String f = match;
             if (f.contains("/")) f = f.substring(f.lastIndexOf("/") + 1);
             if (f.contains("\\")) f = f.substring(f.lastIndexOf("\\") + 1);
 
             if (f.length() > 3) {
-                // Erneuter Check nach Pfad-Extraktion
                 String fLow = f.toLowerCase();
                 if (fLow.equals("none.safetensors") || fLow.equals("default.safetensors")) continue;
 
                 String type = hint != null ? inferTypeFromKey(hint) : null;
                 if (type == null) type = ctx;
                 
-                // Verfeinerung basierend auf Dateinamen (Höchste Priorität für Spezialmodelle)
-                if (fLow.contains("qwen-image-lightning")) type = "unet"; 
-                else if (fLow.contains("vae_approx") || fLow.contains("vae-approx")) type = "vae_approx";
-                else if (ExpertPatterns.COMP_VAE.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "vae";
-                else if (fLow.contains("clip_vision")) type = "clip_vision";
-                else if (ExpertPatterns.COMP_CLIP.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "clip";
-                else if (ExpertPatterns.COMP_UNET.matcher(fLow).find() && (type == null || type.equals("checkpoints") || (type.equals("clip") && !fLow.contains("clip_l") && !fLow.contains("clip_g")))) type = "unet";
+                // Generic refinement based on structural keywords
+                if (COMP_VAE_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "vae";
+                else if (COMP_CLIP_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "clip";
+                else if (COMP_UNET_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints") || (type.equals("clip") && !fLow.contains("clip_l") && !fLow.contains("clip_g")))) type = "unet";
                 
                 addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", f, "MISSING"));
             }
@@ -252,13 +236,12 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private String inferTypeFromNode(String nt) {
         nt = nt.toLowerCase();
         if (nt.contains("lora")) return "loras";
-        if (nt.contains("vae_approx") || nt.contains("vae-approx")) return "vae_approx";
         if (nt.contains("vae")) return "vae";
         if (nt.contains("controlnet") || nt.contains("t2i_adapter")) return "controlnet";
         if (nt.contains("upscale") || nt.contains("esrgan")) return "upscale_models";
         if (nt.contains("latent_upscale")) return "latent_upscale_models";
-        if (nt.contains("clip_vision")) return "clip_vision";
-        if (nt.contains("clip") || nt.contains("text_encoder") || nt.contains("cliploader") || nt.contains("llama") || nt.contains("mistral") || nt.contains("t5") || nt.contains("qwen")) return "clip";
+        if (nt.contains("clip_vision") || nt.contains("clipvision")) return "clip_vision";
+        if (nt.contains("clip") || nt.contains("text_encoder") || nt.contains("tokenizer")) return "clip";
         if (nt.contains("diffusion_model")) return "diffusion_models";
         if (nt.contains("unet") || nt.contains("diffusion")) return "unet";
         if (nt.contains("gligen")) return "gligen";
@@ -276,12 +259,11 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private String inferTypeFromKey(String k) {
         k = k.toLowerCase();
         if (k.contains("lora")) return "loras";
-        if (k.contains("vae_approx") || k.contains("vae-approx")) return "vae_approx";
         if (k.contains("vae")) return "vae";
-        if (k.contains("clip_vision")) return "clip_vision";
-        if (k.contains("clip") || k.contains("text_encoder") || k.contains("llama") || k.contains("mistral") || k.contains("t5") || k.contains("qwen")) return "clip";
+        if (k.contains("clip_vision") || k.contains("clipvision")) return "clip_vision";
+        if (k.contains("clip") || k.contains("text_encoder") || k.contains("tokenizer")) return "clip";
         if (k.contains("diffusion_model")) return "diffusion_models";
-        if (k.contains("unet") || k.contains("diffusion") || k.contains("hidream") || k.contains("aura") || k.contains("mochi") || k.contains("svd") || k.contains("z_image") || k.contains("lumina") || k.contains("flux") || k.contains("dit")) return "unet";
+        if (k.contains("unet") || k.contains("diffusion")) return "unet";
         if (k.contains("control") && k.contains("net")) return "controlnet";
         if (k.contains("upscale") || k.contains("esrgan")) return "upscale_models";
         if (k.contains("embedding")) return "embeddings";
@@ -297,18 +279,17 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private void addModelInfo(List<ModelInfo> res, ModelInfo info) {
         for (ModelInfo e : res) {
             if (e.getName().equalsIgnoreCase(info.getName())) {
-                if (!info.getUrl().equals("MISSING")) {
-                    e.setUrl(info.getUrl());
+                // If the existing entry is generic "checkpoints" but we found a more specific type
+                if ("checkpoints".equals(e.getType()) && !"checkpoints".equals(info.getType())) {
                     e.setType(info.getType());
-                    e.setSave_path(info.getSave_path());
-                } else if (e.getUrl().equals("MISSING")) {
-                    boolean isEWeak = e.getType() == null || e.getType().equals("checkpoints") || e.getType().equals("clip");
-                    boolean isInfoStrong = info.getType() != null && (info.getType().equals("unet") || info.getType().equals("checkpoints"));
-                    
-                    if (isEWeak && isInfoStrong) {
-                        e.setType(info.getType());
-                        e.setSave_path(info.getSave_path());
-                    }
+                    if (info.getSave_path() != null) e.setSave_path(info.getSave_path());
+                }
+                
+                // Always take URL if the current one is MISSING
+                if (e.getUrl().equals("MISSING") && !info.getUrl().equals("MISSING")) {
+                    e.setUrl(info.getUrl());
+                    if (info.getSave_path() != null) e.setSave_path(info.getSave_path());
+                    if (info.getType() != null && !"checkpoints".equals(info.getType())) e.setType(info.getType());
                 }
                 return;
             }

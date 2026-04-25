@@ -261,7 +261,7 @@ public class DefaultDownloadManager implements IDownloadManager {
                 }
             }
         } catch (Exception e) {
-            // Falls es ein Timing-Problem ist (Flagge wird gesetzt während Exception fliegt)
+            // In case of a timing issue (flag set while exception is thrown)
             try { Thread.sleep(50); } catch (InterruptedException ignored) {}
             
             if (isStopped || !isSelected(index) || Thread.currentThread().isInterrupted()) {

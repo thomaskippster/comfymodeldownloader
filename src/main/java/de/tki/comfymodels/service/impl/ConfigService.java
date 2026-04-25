@@ -1,6 +1,7 @@
 package de.tki.comfymodels.service.impl;
 
 import org.json.JSONObject;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -9,10 +10,17 @@ import java.nio.file.Files;
 
 @Service
 public class ConfigService {
-    private static final String CONFIG_FILE = "app_settings.json";
-    private static final String VAULT_FILE = "settings.vault";
+    private final String CONFIG_FILE = "app_settings.json";
+    private final String VAULT_FILE = "settings.vault";
     private JSONObject settings = new JSONObject();
     private String masterPassword = null;
+
+    private final EncryptionUtils encryptionUtils;
+
+    @Autowired
+    public ConfigService(EncryptionUtils encryptionUtils) {
+        this.encryptionUtils = encryptionUtils;
+    }
 
     /**
      * Use the current working directory for application data.
@@ -32,7 +40,7 @@ public class ConfigService {
         if (vault.exists()) {
             String encrypted = Files.readString(vault.toPath(), StandardCharsets.UTF_8);
             try {
-                String decrypted = EncryptionUtils.decrypt(encrypted, password);
+                String decrypted = encryptionUtils.decrypt(encrypted, password);
                 JSONObject decryptedJson = new JSONObject(decrypted);
                 this.settings = decryptedJson;
                 this.masterPassword = password;
@@ -67,7 +75,7 @@ public class ConfigService {
             return;
         }
         try {
-            String encrypted = EncryptionUtils.encrypt(settings.toString(), masterPassword);
+            String encrypted = encryptionUtils.encrypt(settings.toString(), masterPassword);
             Files.writeString(getFileInAppData(VAULT_FILE).toPath(), encrypted, StandardCharsets.UTF_8);
             System.out.println("Vault saved successfully to: " + getFileInAppData(VAULT_FILE).getAbsolutePath());
         } catch (Exception e) {
@@ -91,7 +99,7 @@ public class ConfigService {
     public boolean isShutdownAfterDownloadEnabled() { return settings.optBoolean("shutdown_after_download", false); }
     public void setShutdownAfterDownloadEnabled(boolean enabled) { settings.put("shutdown_after_download", enabled); save(); }
 
-    public boolean isDarkMode() { return settings.optBoolean("dark_mode", true); }
+    public boolean isDarkMode() { return settings.optBoolean("dark_mode", false); }
     public void setDarkMode(boolean enabled) { settings.put("dark_mode", enabled); save(); }
 
     public void savePendingDownloads(String json) {

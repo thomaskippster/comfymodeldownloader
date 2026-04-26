@@ -4,6 +4,7 @@ import java.io.File;
 
 public interface IModelValidator {
     ValidationResult validateFile(File file);
+    String calculateHash(File file);
 
     class ValidationResult {
         public final boolean ok;

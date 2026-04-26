@@ -45,6 +45,29 @@ public class ModelValidator implements IModelValidator {
         return new ValidationResult(true, "OK", path);
     }
 
+    @Override
+    public String calculateHash(File file) {
+        if (!file.exists() || !file.isFile()) return null;
+        try (java.io.InputStream is = new java.io.BufferedInputStream(new java.io.FileInputStream(file), 1024 * 1024)) {
+            java.security.MessageDigest digest = java.security.MessageDigest.getInstance("SHA-256");
+            byte[] buffer = new byte[1024 * 1024];
+            int read;
+            while ((read = is.read(buffer)) != -1) {
+                digest.update(buffer, 0, read);
+            }
+            byte[] hash = digest.digest();
+            StringBuilder hexString = new StringBuilder();
+            for (byte b : hash) {
+                String hex = Integer.toHexString(0xff & b);
+                if (hex.length() == 1) hexString.append('0');
+                hexString.append(hex);
+            }
+            return hexString.toString();
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     private ValidationResult validateSafetensors(File file) {
         try (RandomAccessFile raf = new RandomAccessFile(file, "r")) {
             if (raf.length() < 8) return new ValidationResult(false, "File too small to have a header", file.getAbsolutePath());

@@ -25,9 +25,13 @@ boot.key
 # User Model List (internal DB)
 uploaded_models.json
 pending_downloads.json
+model_hashes.json
 
 # Local config & assets
 workflow.json
+*.json
+!pom.xml
+!src/**
 *.png
 *.bat
 *.zip

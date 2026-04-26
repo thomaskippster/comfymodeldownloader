@@ -39,6 +39,8 @@ import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.Map;
+import java.util.HashMap;
 import java.util.stream.Collectors;
 
 @Component
@@ -57,6 +59,9 @@ public class Main extends JFrame {
 
     @Autowired
     private ModelListService modelListService;
+
+    @Autowired
+    private de.tki.comfymodels.service.impl.ModelHashRegistry hashRegistry;
 
     private JTextField modelsPathField;
     private JPasswordField geminiKeyField;
@@ -326,8 +331,19 @@ public class Main extends JFrame {
         JButton helpBtn = new JButton("ℹ Help & Security Information");
         helpBtn.addActionListener(e -> showHelpDialog());
         
-        JButton verifyBtn = new JButton("🔍 Verify Local Models (Corruption Check)");
-        verifyBtn.addActionListener(e -> verifyLocalModels());
+        JButton verifyBtn = new JButton("🔍 Fast Verify (Corruption)");
+        verifyBtn.addActionListener(e -> verifyLocalModels(false));
+        
+        JButton optimizeBtn = new JButton("👯 Storage Optimizer (Duplicates)");
+        optimizeBtn.addActionListener(e -> {
+            int confirm = JOptionPane.showConfirmDialog(this, 
+                "The Storage Optimizer calculates SHA-256 hashes for all local models.\n" +
+                "This is EXTREMELY slow and resource-intensive for large libraries.\n\n" +
+                "Do you want to proceed?", "Performance Warning", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+            if (confirm == JOptionPane.YES_OPTION) {
+                verifyLocalModels(true);
+            }
+        });
 
         backgroundCheck = new JCheckBox("Stay in Background on Close");
         backgroundCheck.addActionListener(e -> configService.setBackgroundModeEnabled(backgroundCheck.isSelected()));
@@ -353,6 +369,7 @@ public class Main extends JFrame {
 
         infoRow.add(helpBtn);
         infoRow.add(verifyBtn);
+        infoRow.add(optimizeBtn);
         infoRow.add(backgroundCheck);
         infoRow.add(shutdownCheck);
         infoRow.add(darkCheck);
@@ -629,7 +646,7 @@ public class Main extends JFrame {
         );
     }
 
-    private void verifyLocalModels() {
+    private void verifyLocalModels(boolean checkDuplicates) {
         String baseDir = modelsPathField.getText();
         if (baseDir == null || baseDir.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Please set a models directory first.");
@@ -642,10 +659,13 @@ public class Main extends JFrame {
             return;
         }
 
-        statusLabel.setText("Verifying models... please wait.");
+        String taskName = checkDuplicates ? "Verifying models & checking for duplicates" : "Verifying models (Fast Check)";
+        statusLabel.setText(taskName + "... please wait.");
         new Thread(() -> {
             try {
                 List<IModelValidator.ValidationResult> errors = new ArrayList<>();
+                Map<String, List<Path>> hashToPaths = new HashMap<>();
+                
                 List<Path> allFiles = Files.walk(root.toPath())
                         .filter(Files::isRegularFile)
                         .filter(p -> {
@@ -663,53 +683,105 @@ public class Main extends JFrame {
                     IModelValidator.ValidationResult res = modelValidator.validateFile(p.toFile());
                     if (!res.ok) {
                         errors.add(res);
+                    } else if (checkDuplicates) {
+                        String hash = hashRegistry.getOrCalculateHash(p.toFile());
+                        if (hash != null) {
+                            hashToPaths.computeIfAbsent(hash, k -> new ArrayList<>()).add(p);
+                        }
                     }
                 }
 
+                Map<String, List<Path>> duplicates = checkDuplicates ? hashToPaths.entrySet().stream()
+                        .filter(e -> e.getValue().size() > 1)
+                        .collect(Collectors.toMap(Map.Entry::getKey, Map.Entry::getValue)) : new HashMap<>();
+
                 SwingUtilities.invokeLater(() -> {
-                    statusLabel.setText("Verification finished. Found " + errors.size() + " issues.");
-                    if (errors.isEmpty()) {
+                    statusLabel.setText("Scan finished. Found " + errors.size() + " issues and " + duplicates.size() + " duplicate sets.");
+                    
+                    if (errors.isEmpty() && duplicates.isEmpty()) {
                         JOptionPane.showMessageDialog(this, "All " + total + " models verified successfully!", "Verification Complete", JOptionPane.INFORMATION_MESSAGE);
-                    } else {
-                        StringBuilder sb = new StringBuilder("The following " + errors.size() + " files appear to be corrupted or invalid:\n\n");
+                        return;
+                    }
+
+                    StringBuilder sb = new StringBuilder();
+                    if (!errors.isEmpty()) {
+                        sb.append("⚠️ CORRUPTED FILES (").append(errors.size()).append("):\n");
                         for (IModelValidator.ValidationResult err : errors) {
-                            sb.append("- ").append(new File(err.filePath).getName())
-                              .append(" (").append(err.message).append(")\n")
-                              .append("  Path: ").append(err.filePath).append("\n\n");
+                            sb.append("- ").append(new File(err.filePath).getName()).append(" (").append(err.message).append(")\n");
                         }
-                        
-                        JTextArea textArea = new JTextArea(sb.toString());
-                        textArea.setEditable(false);
-                        JScrollPane scrollPane = new JScrollPane(textArea);
-                        scrollPane.setPreferredSize(new Dimension(800, 500));
-                        
-                        Object[] options = {"OK", "Delete All Corrupted Files"};
-                        int choice = JOptionPane.showOptionDialog(this, scrollPane, "Verification Results - Issues Found", 
-                                JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
-                        
-                        if (choice == 1) { // Delete All Corrupted Files
-                            int confirm = JOptionPane.showConfirmDialog(this, 
-                                "Are you sure you want to delete these " + errors.size() + " files?\nThis action cannot be undone.",
-                                "Confirm Deletion", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
-                            
-                            if (confirm == JOptionPane.YES_OPTION) {
-                                int deletedCount = 0;
-                                for (IModelValidator.ValidationResult err : errors) {
-                                    File f = new File(err.filePath);
-                                    if (f.exists() && f.delete()) {
-                                        deletedCount++;
-                                    }
-                                }
-                                JOptionPane.showMessageDialog(this, "Deleted " + deletedCount + " files.");
-                                statusLabel.setText("Cleanup finished. Deleted " + deletedCount + " files.");
+                        sb.append("\n");
+                    }
+
+                    if (!duplicates.isEmpty()) {
+                        sb.append("👯 DUPLICATES FOUND (").append(duplicates.size()).append(" sets):\n");
+                        for (Map.Entry<String, List<Path>> entry : duplicates.entrySet()) {
+                            sb.append("Hash: ").append(entry.getKey().substring(0, 12)).append("...\n");
+                            for (Path p : entry.getValue()) {
+                                sb.append("  - ").append(p.toFile().getAbsolutePath()).append(" (").append(formatSize(p.toFile().length())).append(")\n");
                             }
+                            sb.append("\n");
                         }
+                    }
+                    
+                    JTextArea textArea = new JTextArea(sb.toString());
+                    textArea.setEditable(false);
+                    JScrollPane scrollPane = new JScrollPane(textArea);
+                    scrollPane.setPreferredSize(new Dimension(850, 550));
+                    
+                    Object[] options = {"OK", "Delete All Corrupted", "Manage Duplicates..."};
+                    int choice = JOptionPane.showOptionDialog(this, scrollPane, "Verification & Duplicate Results", 
+                            JOptionPane.DEFAULT_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+                    
+                    if (choice == 1) { // Delete All Corrupted
+                        handleDeleteCorrupted(errors);
+                    } else if (choice == 2) { // Manage Duplicates
+                        handleManageDuplicates(duplicates);
                     }
                 });
             } catch (IOException e) {
-                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Error during verification: " + e.getMessage()));
+                SwingUtilities.invokeLater(() -> JOptionPane.showMessageDialog(this, "Error: " + e.getMessage()));
             }
         }).start();
+    }
+
+    private void handleDeleteCorrupted(List<IModelValidator.ValidationResult> errors) {
+        int confirm = JOptionPane.showConfirmDialog(this, "Delete " + errors.size() + " corrupted files?", "Confirm", JOptionPane.YES_NO_OPTION);
+        if (confirm == JOptionPane.YES_OPTION) {
+            int deleted = 0;
+            for (IModelValidator.ValidationResult err : errors) {
+                File f = new File(err.filePath);
+                if (f.exists() && f.delete()) {
+                    hashRegistry.unregister(f);
+                    deleted++;
+                }
+            }
+            JOptionPane.showMessageDialog(this, "Deleted " + deleted + " files.");
+        }
+    }
+
+    private void handleManageDuplicates(Map<String, List<Path>> duplicates) {
+        long totalSavings = 0;
+        for (List<Path> paths : duplicates.values()) {
+            for (int i = 1; i < paths.size(); i++) totalSavings += paths.get(i).toFile().length();
+        }
+        
+        int confirm = JOptionPane.showConfirmDialog(this, 
+            "Keep the first file of each set and delete others?\nEstimated savings: " + formatSize(totalSavings), 
+            "Storage Optimizer", JOptionPane.YES_NO_OPTION);
+            
+        if (confirm == JOptionPane.YES_OPTION) {
+            int deletedCount = 0;
+            for (List<Path> paths : duplicates.values()) {
+                for (int i = 1; i < paths.size(); i++) {
+                    File f = paths.get(i).toFile();
+                    if (f.exists() && f.delete()) {
+                        hashRegistry.unregister(f);
+                        deletedCount++;
+                    }
+                }
+            }
+            JOptionPane.showMessageDialog(this, "Freed " + formatSize(totalSavings) + ".");
+        }
     }
 
     private void showHelpDialog() {
@@ -754,10 +826,17 @@ public class Main extends JFrame {
     private void fetchSizeInBackground(ModelInfo info, int rowIndex) {
         new Thread(() -> {
             long size = searchService.getRemoteSize(info.getUrl());
-            String s = searchService.formatSize(size);
+            String s = formatSize(size);
             info.setSize(s);
             SwingUtilities.invokeLater(() -> tableModel.setValueAt(s, rowIndex, 3));
         }).start();
+    }
+
+    private String formatSize(long bytes) {
+        if (bytes <= 0) return "Unknown";
+        if (bytes < 1024 * 1024) return (bytes / 1024) + " KB";
+        if (bytes < 1024 * 1024 * 1024) return String.format("%.1f MB", bytes / (1024.0 * 1024.0));
+        return String.format("%.2f GB", bytes / (1024.0 * 1024.0 * 1024.0));
     }
 
     public static void main(String[] args) {

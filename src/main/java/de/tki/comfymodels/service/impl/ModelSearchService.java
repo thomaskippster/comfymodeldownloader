@@ -83,6 +83,12 @@ public class ModelSearchService implements IModelSearchService {
         }
     }
 
+    @Autowired
+    private de.tki.comfymodels.service.impl.ModelHashRegistry hashRegistry;
+
+    @Autowired
+    private de.tki.comfymodels.service.IModelValidator modelValidator;
+
     private void performSearch(ModelInfo info, int index, String fileName, String workflowContext,
                                BiConsumer<Integer, String> onStatusUpdate,
                                BiConsumer<Integer, ModelInfo> onModelFound) {
@@ -91,6 +97,18 @@ public class ModelSearchService implements IModelSearchService {
         if (manualMatch.isPresent() && !manualMatch.get().getUrl().equals("MISSING")) {
             onStatusUpdate.accept(index, "📂 Found in Model List");
             if (validateAndSetUrl(info, index, manualMatch.get().getUrl(), "📂 USER DEFINED", onStatusUpdate, onModelFound)) return;
+        }
+
+        // Priority 2: Civitai Hash Lookup (if file exists locally but we want the source URL/Metadata)
+        // This is useful for re-downloading or finding updates
+        String modelsPath = configService.getModelsPath();
+        java.io.File localFile = new java.io.File(modelsPath, (info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : "checkpoints")) + java.io.File.separator + info.getName());
+        if (localFile.exists()) {
+            onStatusUpdate.accept(index, "🔍 Hashing for Civitai...");
+            String hash = hashRegistry.getOrCalculateHash(localFile);
+            if (hash != null) {
+                if (fetchCivitaiUrlByHash(info, index, hash, onStatusUpdate, onModelFound)) return;
+            }
         }
 
         onStatusUpdate.accept(index, "✨ Gemini Scouting...");
@@ -269,6 +287,29 @@ public class ModelSearchService implements IModelSearchService {
                     String author = modelId.split("/")[0];
                     if (officialOnly && !OFFICIAL_AUTHORS.contains(author)) continue;
                     if (fetchHuggingFaceUrlInSpecificRepo(info, rowIndex, modelId, onStatusUpdate, onModelFound)) return true;
+                }
+            }
+        } catch (Exception e) {}
+        return false;
+    }
+
+    private boolean fetchCivitaiUrlByHash(ModelInfo info, int rowIndex, String hash,
+                                         BiConsumer<Integer, String> onStatusUpdate,
+                                         BiConsumer<Integer, ModelInfo> onModelFound) {
+        try {
+            String searchUrl = "https://civitai.com/api/v1/model-versions/by-hash/" + hash;
+            HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder().uri(URI.create(searchUrl)).build(), HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() == 200) {
+                JSONObject version = new JSONObject(response.body());
+                JSONArray files = version.optJSONArray("files");
+                if (files != null) {
+                    for (int j = 0; j < files.length(); j++) {
+                        JSONObject file = files.getJSONObject(j);
+                        // We check if the name matches or if it's the primary file for this version
+                        if (file.optString("name").equalsIgnoreCase(info.getName()) || file.optBoolean("primary", false)) {
+                            return validateAndSetUrl(info, rowIndex, file.optString("downloadUrl"), "🛡️ Civitai (Hash Match)", onStatusUpdate, onModelFound);
+                        }
+                    }
                 }
             }
         } catch (Exception e) {}

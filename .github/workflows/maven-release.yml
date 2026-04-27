@@ -68,14 +68,19 @@ jobs:
 
       - name: Upload to SourceForge
         run: |
-          # Wir definieren die Version explizit aus dem Environment
           REL_VERSION="v${{ env.VERSION }}"
           PROJECT_NAME="comfymodeldownloader"
           
           echo "Uploading version $REL_VERSION to project $PROJECT_NAME..."
           
-          # Ordner per SSH erstellen - wir nutzen -o StrictHostKeyChecking=no zur Sicherheit zusätzlich
-          ssh -o StrictHostKeyChecking=no thomaskifree@frs.sourceforge.net "mkdir -p /home/frs/project/$PROJECT_NAME/$REL_VERSION"
+          # Wir nutzen sftp, da es in der restricted shell von SourceForge oft zuverlässiger ist als rsync
+          # und wir damit gezielt das Verzeichnis anlegen können.
+          # Das Minus vor mkdir ignoriert Fehler, falls das Verzeichnis bereits existiert.
           
-          # Datei per SCP hochladen (absoluter Zielpfad)
-          scp -o StrictHostKeyChecking=no target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/$PROJECT_NAME/$REL_VERSION/ComfyUIModelDownloader.jar
+          cat <<EOF > sftp_batch
+          -mkdir /home/frs/project/$PROJECT_NAME/$REL_VERSION
+          put target/ComfyUIModelDownloader.jar /home/frs/project/$PROJECT_NAME/$REL_VERSION/
+          quit
+          EOF
+          
+          sftp -b sftp_batch -o StrictHostKeyChecking=no thomaskifree@frs.sourceforge.net

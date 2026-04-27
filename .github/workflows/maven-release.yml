@@ -22,12 +22,13 @@ jobs:
 
     steps:
       - name: Checkout Code
-        uses: actions/checkout@v6
+        uses: actions/checkout@v4
         with:
-          fetch-depth: 0 
+          fetch-depth: 0
+          ref: main
 
       - name: Set up JDK 17
-        uses: actions/setup-java@v5
+        uses: actions/setup-java@v4
         with:
           java-version: '17'
           distribution: 'temurin'
@@ -39,6 +40,7 @@ jobs:
         run: |
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
+          git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
 
       - name: Install SSH Key
         uses: shimataro/ssh-key-action@v2
@@ -58,7 +60,8 @@ jobs:
         run: |
           mvn -B release:prepare release:perform \
             -DreleaseVersion=${{ github.event.inputs.releaseVersion }} \
-            -DdevelopmentVersion=${{ github.event.inputs.developmentVersion }}
+            -DdevelopmentVersion=${{ github.event.inputs.developmentVersion }} \
+            -DscmCommentPrefix="[release] "
 
       - name: Upload to SourceForge
         run: |

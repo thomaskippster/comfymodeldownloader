@@ -1,6 +1,5 @@
 name: Maven Release Build
 
-# This lets you trigger the build manually from the GitHub Actions tab
 on:
   workflow_dispatch:
     inputs:
@@ -17,7 +16,6 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
     
-    # Crucial: Give the action permission to push commits and tags back to the repo
     permissions:
       contents: write
       packages: write 
@@ -26,15 +24,14 @@ jobs:
       - name: Checkout Code
         uses: actions/checkout@v6
         with:
-          # You need to fetch all history so the release plugin can see tags
           fetch-depth: 0 
 
       - name: Set up JDK 17
         uses: actions/setup-java@v5
         with:
-          java-version: '17' # Change this to your Java version
+          java-version: '17'
           distribution: 'temurin'
-          server-id: github # Must match the <id> in your distributionManagement
+          server-id: github
           server-username: GITHUB_ACTOR
           server-password: GITHUB_TOKEN
 
@@ -43,6 +40,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
+      - name: Install SSH Key
+        uses: shimataro/ssh-key-action@v2
+        with:
+          key: ${{ secrets.SF_SSH_KEY }}
+          known_hosts: ${{ secrets.SF_KNOWN_HOSTS }} # Optional, but recommended
+          if_key_exists: replace
+
+      - name: Add SourceForge to Known Hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -t ed25519 frs.sourceforge.net >> ~/.ssh/known_hosts
+
       - name: Perform Maven Release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -50,3 +59,9 @@ jobs:
           mvn -B release:prepare release:perform \
             -DreleaseVersion=${{ github.event.inputs.releaseVersion }} \
             -DdevelopmentVersion=${{ github.event.inputs.developmentVersion }}
+
+      - name: Upload to SourceForge
+        run: |
+          # The release:perform goal puts the project in target/checkout
+          # We upload the shaded JAR which was built during the perform phase
+          scp target/checkout/target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/comfymodeldownloader/ComfyUIModelDownloader.jar

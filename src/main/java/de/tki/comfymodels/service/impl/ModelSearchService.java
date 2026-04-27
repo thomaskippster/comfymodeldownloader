@@ -89,6 +89,18 @@ public class ModelSearchService implements IModelSearchService {
     @Autowired
     private de.tki.comfymodels.service.IModelValidator modelValidator;
 
+    protected String getHfApiBaseUrl() {
+        return "https://huggingface.co/api";
+    }
+
+    protected String getCivitaiApiBaseUrl() {
+        return "https://civitai.com/api/v1";
+    }
+
+    protected String getHfResolveBaseUrl() {
+        return "https://huggingface.co";
+    }
+
     private void performSearch(ModelInfo info, int index, String fileName, String workflowContext,
                                BiConsumer<Integer, String> onStatusUpdate,
                                BiConsumer<Integer, ModelInfo> onModelFound) {
@@ -99,8 +111,7 @@ public class ModelSearchService implements IModelSearchService {
             if (validateAndSetUrl(info, index, manualMatch.get().getUrl(), "📂 USER DEFINED", onStatusUpdate, onModelFound)) return;
         }
 
-        // Priority 2: Civitai Hash Lookup (if file exists locally but we want the source URL/Metadata)
-        // This is useful for re-downloading or finding updates
+        // Priority 2: Civitai Hash Lookup
         String modelsPath = configService.getModelsPath();
         java.io.File localFile = new java.io.File(modelsPath, (info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : "checkpoints")) + java.io.File.separator + info.getName());
         if (localFile.exists()) {
@@ -123,44 +134,19 @@ public class ModelSearchService implements IModelSearchService {
 
         String modelName = info.getName();
         String cleanName = modelName.replaceAll("(_fp8|_fp16|_bf16|_v\\d+|\\d+v|_fix|\\.safetensors|\\.sft|\\.ckpt)", "");
-        String[] nameParts = cleanName.split("[_\\- ]");
-        String baseName = nameParts.length > 0 ? nameParts[0] : cleanName;
         
-        String contextPrefix = "";
-        if (fileName != null && !fileName.isEmpty()) {
-            String[] fileParts = fileName.toLowerCase().split("[_\\- ]");
-            if (fileParts.length > 0) {
-                contextPrefix = fileParts[0];
-                if (contextPrefix.length() < 3 || contextPrefix.startsWith("workflow")) {
-                    contextPrefix = "";
-                }
-            }
-        }
-        
-        if (contextPrefix.isEmpty() && info.getPopularity() != null && info.getPopularity().contains("Context: ")) {
-            String[] popParts = info.getPopularity().split("Context: ");
-            if (popParts.length > 1) {
-                contextPrefix = popParts[1].split(" ")[0].toLowerCase();
-            }
-        }
-
         LinkedHashSet<String> attempts = new LinkedHashSet<>();
-        if (!contextPrefix.isEmpty()) {
-            attempts.add(contextPrefix + " " + modelName);
-            attempts.add(contextPrefix + " " + cleanName);
-        }
         attempts.add(modelName);
         attempts.add(cleanName);
-        attempts.add(baseName);
 
-        // Suche in offiziellen Repos (Top 100)
+        // Official HF
         for (String query : attempts) {
             if (query.length() < 3) continue;
             onStatusUpdate.accept(index, "🔍 Searching Official: " + query);
             if (fetchHuggingFaceUrl(info, index, query, true, onStatusUpdate, onModelFound)) return;
         }
         
-        // Suche in Community Repos (Top 100)
+        // Community HF
         for (String query : attempts) {
             if (query.length() < 3) continue;
             onStatusUpdate.accept(index, "🔍 Searching Community: " + query);
@@ -182,7 +168,6 @@ public class ModelSearchService implements IModelSearchService {
                                      BiConsumer<Integer, ModelInfo> onModelFound) {
         if (url == null) return false;
         
-        // Normalize Hugging Face blob URLs to resolve URLs
         if (url.contains("huggingface.co") && url.contains("/blob/")) {
             url = url.replace("/blob/", "/resolve/");
         }
@@ -203,6 +188,10 @@ public class ModelSearchService implements IModelSearchService {
         try {
             if (url.contains("huggingface.co") && url.contains("/resolve/")) {
                 String apiUrl = url.replace("/resolve/", "/api/models/").replace("/main/", "/file/");
+                if (!apiUrl.contains("/api/models/")) {
+                    // Fallback for direct resolve URLs
+                    apiUrl = getHfApiBaseUrl() + "/models/" + url.split("huggingface.co/")[1].replace("/resolve/main/", "/file/");
+                }
                 HttpRequest.Builder apiBuilder = HttpRequest.newBuilder().uri(URI.create(apiUrl)).GET().header("User-Agent", "Mozilla/5.0");
                 String token = configService.getHfToken();
                 if (!token.isEmpty()) apiBuilder.header("Authorization", "Bearer " + token);
@@ -221,15 +210,7 @@ public class ModelSearchService implements IModelSearchService {
             HttpResponse<Void> res = httpClient.send(builder.build(), HttpResponse.BodyHandlers.discarding());
             if (res.statusCode() == 401 || res.statusCode() == 403) return -401;
 
-            long bytes = res.headers().firstValueAsLong("Content-Length").orElse(-1L);
-            if (bytes <= 2000) {
-                HttpRequest.Builder rBuilder = HttpRequest.newBuilder().uri(URI.create(url)).header("Range", "bytes=0-0").header("User-Agent", "Mozilla/5.0");
-                if (url.contains("huggingface.co") && !token.isEmpty()) rBuilder.header("Authorization", "Bearer " + token);
-                HttpResponse<Void> rRes = httpClient.send(rBuilder.build(), HttpResponse.BodyHandlers.discarding());
-                String cr = rRes.headers().firstValue("Content-Range").orElse("");
-                bytes = cr.contains("/") ? Long.parseLong(cr.substring(cr.lastIndexOf("/") + 1)) : rRes.headers().firstValueAsLong("Content-Length").orElse(-1L);
-            }
-            return bytes;
+            return res.headers().firstValueAsLong("Content-Length").orElse(-1L);
         } catch (Exception e) {
             return -1;
         }
@@ -247,7 +228,7 @@ public class ModelSearchService implements IModelSearchService {
                                                        BiConsumer<Integer, String> onStatusUpdate,
                                                        BiConsumer<Integer, ModelInfo> onModelFound) {
         try {
-            String treeUrl = "https://huggingface.co/api/models/" + repoId + "/tree/main?recursive=true";
+            String treeUrl = getHfApiBaseUrl() + "/models/" + repoId + "/tree/main?recursive=true";
             HttpRequest.Builder builder = HttpRequest.newBuilder().uri(URI.create(treeUrl)).GET();
             String token = configService.getHfToken();
             if (!token.isEmpty()) builder.header("Authorization", "Bearer " + token);
@@ -260,11 +241,10 @@ public class ModelSearchService implements IModelSearchService {
                 for (int j = 0; j < files.length(); j++) {
                     JSONObject file = files.getJSONObject(j);
                     String path = file.optString("path");
-                    String type = file.optString("type");
-                    if ("file".equals(type)) {
+                    if ("file".equals(file.optString("type"))) {
                         String fileNameOnly = path.contains("/") ? path.substring(path.lastIndexOf("/") + 1) : path;
                         if (path.equalsIgnoreCase(info.getName()) || fileNameOnly.equalsIgnoreCase(targetName)) {
-                            String downloadUrl = "https://huggingface.co/" + repoId + "/resolve/main/" + path;
+                            String downloadUrl = getHfResolveBaseUrl() + "/" + repoId + "/resolve/main/" + path;
                             return validateAndSetUrl(info, rowIndex, downloadUrl, "✨ AI RECURSIVE", onStatusUpdate, onModelFound);
                         }
                     }
@@ -278,7 +258,7 @@ public class ModelSearchService implements IModelSearchService {
                                          BiConsumer<Integer, String> onStatusUpdate,
                                          BiConsumer<Integer, ModelInfo> onModelFound) {
         try {
-            String searchUrl = "https://huggingface.co/api/models?search=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&sort=downloads&direction=-1&limit=100";
+            String searchUrl = getHfApiBaseUrl() + "/models?search=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&sort=downloads&direction=-1&limit=100";
             HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder().uri(URI.create(searchUrl)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 JSONArray models = new JSONArray(response.body());
@@ -297,7 +277,7 @@ public class ModelSearchService implements IModelSearchService {
                                          BiConsumer<Integer, String> onStatusUpdate,
                                          BiConsumer<Integer, ModelInfo> onModelFound) {
         try {
-            String searchUrl = "https://civitai.com/api/v1/model-versions/by-hash/" + hash;
+            String searchUrl = getCivitaiApiBaseUrl() + "/model-versions/by-hash/" + hash;
             HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder().uri(URI.create(searchUrl)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 JSONObject version = new JSONObject(response.body());
@@ -305,7 +285,6 @@ public class ModelSearchService implements IModelSearchService {
                 if (files != null) {
                     for (int j = 0; j < files.length(); j++) {
                         JSONObject file = files.getJSONObject(j);
-                        // We check if the name matches or if it's the primary file for this version
                         if (file.optString("name").equalsIgnoreCase(info.getName()) || file.optBoolean("primary", false)) {
                             return validateAndSetUrl(info, rowIndex, file.optString("downloadUrl"), "🛡️ Civitai (Hash Match)", onStatusUpdate, onModelFound);
                         }
@@ -320,7 +299,7 @@ public class ModelSearchService implements IModelSearchService {
                                      BiConsumer<Integer, String> onStatusUpdate,
                                      BiConsumer<Integer, ModelInfo> onModelFound) {
         try {
-            String searchUrl = "https://civitai.com/api/v1/models?query=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&sort=Most+Downloaded&limit=20";
+            String searchUrl = getCivitaiApiBaseUrl() + "/models?query=" + URLEncoder.encode(query, StandardCharsets.UTF_8) + "&sort=Most+Downloaded&limit=20";
             HttpResponse<String> response = httpClient.send(HttpRequest.newBuilder().uri(URI.create(searchUrl)).build(), HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
                 JSONObject json = new JSONObject(response.body());

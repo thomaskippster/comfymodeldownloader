@@ -26,6 +26,10 @@ public class GeminiAIService {
 
     private String activeModel = "gemini-1.5-flash";
 
+    protected String getApiBaseUrl() {
+        return "https://generativelanguage.googleapis.com";
+    }
+
     public String getActiveModel() {
         return activeModel;
     }
@@ -41,7 +45,7 @@ public class GeminiAIService {
         if (apiKey == null || apiKey.trim().isEmpty()) return "None";
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models?key=" + apiKey))
+                    .uri(URI.create(getApiBaseUrl() + "/v1beta/models?key=" + apiKey))
                     .GET().build();
             HttpResponse<String> response = client.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
@@ -81,7 +85,7 @@ public class GeminiAIService {
             payload.put("contents", contents);
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + activeModel + ":generateContent?key=" + apiKey))
+                    .uri(URI.create(getApiBaseUrl() + "/v1beta/models/" + activeModel + ":generateContent?key=" + apiKey))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
@@ -107,7 +111,7 @@ public class GeminiAIService {
                     .put("parts", new JSONArray().put(new JSONObject().put("text", "Analyze: " + modelName + ". Return 'Creator | Arch'."))));
             payload.put("contents", contents);
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create("https://generativelanguage.googleapis.com/v1beta/models/" + activeModel + ":generateContent?key=" + apiKey))
+                    .uri(URI.create(getApiBaseUrl() + "/v1beta/models/" + activeModel + ":generateContent?key=" + apiKey))
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();

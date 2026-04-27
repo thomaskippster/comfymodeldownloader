@@ -68,7 +68,14 @@ jobs:
 
       - name: Upload to SourceForge
         run: |
-          # Erstellt den Ordner auf SourceForge (via SSH) und lädt die Datei hoch
-          # Wir nutzen 'ssh' um den Ordner zu erstellen und 'scp' für den Upload
-          ssh thomaskifree@frs.sourceforge.net "mkdir -p /home/frs/project/comfymodeldownloader/v${{ env.VERSION }}"
-          scp target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/comfymodeldownloader/v${{ env.VERSION }}/ComfyUIModelDownloader.jar
+          # Wir definieren die Version explizit aus dem Environment
+          REL_VERSION="v${{ env.VERSION }}"
+          PROJECT_NAME="comfymodeldownloader"
+          
+          echo "Uploading version $REL_VERSION to project $PROJECT_NAME..."
+          
+          # Ordner per SSH erstellen - wir nutzen -o StrictHostKeyChecking=no zur Sicherheit zusätzlich
+          ssh -o StrictHostKeyChecking=no thomaskifree@frs.sourceforge.net "mkdir -p /home/frs/project/$PROJECT_NAME/$REL_VERSION"
+          
+          # Datei per SCP hochladen (absoluter Zielpfad)
+          scp -o StrictHostKeyChecking=no target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/$PROJECT_NAME/$REL_VERSION/ComfyUIModelDownloader.jar

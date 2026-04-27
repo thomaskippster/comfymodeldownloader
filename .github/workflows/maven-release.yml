@@ -1,14 +1,7 @@
-name: Maven Release Build
+name: Maven Auto-Release
 
 on:
-  workflow_dispatch:
-    inputs:
-      releaseVersion:
-        description: 'Release Version (e.g., 1.0.0)'
-        required: true
-      developmentVersion:
-        description: 'Next Dev Version (e.g., 1.0.1-SNAPSHOT)'
-        required: true
+  workflow_dispatch: # Startet weiterhin manuell per Klick, aber ohne Texteingabe
 
 jobs:
   release:
@@ -42,11 +35,30 @@ jobs:
           git config user.name "github-actions[bot]"
           git remote set-url origin https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git
 
+      - name: Set Version and Build
+        run: |
+          # Wir nehmen 1.0 als Basis und hängen die Run-Nummer an
+          NEW_VERSION="1.0.${{ github.run_number }}"
+          echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
+          
+          # Version in pom.xml patchen
+          mvn -B versions:set -DnewVersion=$NEW_VERSION -DgenerateBackupPoms=false
+          
+          # Projekt bauen
+          mvn -B clean package -DskipTests
+
+      - name: Create Git Tag
+        run: |
+          git add pom.xml
+          git commit -m "chore: bump version to ${{ env.VERSION }}"
+          git tag v${{ env.VERSION }}
+          git push origin main --tags
+
       - name: Install SSH Key
         uses: shimataro/ssh-key-action@v2
         with:
           key: ${{ secrets.SF_SSH_KEY }}
-          known_hosts: ${{ secrets.SF_KNOWN_HOSTS }} # Optional, but recommended
+          known_hosts: ${{ secrets.SF_KNOWN_HOSTS }}
           if_key_exists: replace
 
       - name: Add SourceForge to Known Hosts
@@ -54,17 +66,9 @@ jobs:
           mkdir -p ~/.ssh
           ssh-keyscan -t ed25519 frs.sourceforge.net >> ~/.ssh/known_hosts
 
-      - name: Perform Maven Release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          mvn -B release:prepare release:perform \
-            -DreleaseVersion=${{ github.event.inputs.releaseVersion }} \
-            -DdevelopmentVersion=${{ github.event.inputs.developmentVersion }} \
-            -DscmCommentPrefix="[release] "
-
       - name: Upload to SourceForge
         run: |
-          # The release:perform goal puts the project in target/checkout
-          # We upload the shaded JAR which was built during the perform phase
-          scp target/checkout/target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/comfymodeldownloader/ComfyUIModelDownloader.jar
+          # Erstellt den Ordner auf SourceForge (via SSH) und lädt die Datei hoch
+          # Wir nutzen 'ssh' um den Ordner zu erstellen und 'scp' für den Upload
+          ssh thomaskifree@frs.sourceforge.net "mkdir -p /home/frs/project/comfymodeldownloader/v${{ env.VERSION }}"
+          scp target/ComfyUIModelDownloader.jar thomaskifree@frs.sourceforge.net:/home/frs/project/comfymodeldownloader/v${{ env.VERSION }}/ComfyUIModelDownloader.jar

@@ -41,6 +41,35 @@ public class ComfyModelAnalyzerTest {
     }
 
     @Test
+    public void testAnalyzeWithModelListSize() throws Exception {
+        ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
+        
+        // Mock ModelListService
+        ModelListService mockListService = new ModelListService() {
+            @Override
+            public Optional<ModelInfo> findByFilename(String filename) {
+                if ("model_with_size.safetensors".equalsIgnoreCase(filename)) {
+                    ModelInfo info = new ModelInfo("checkpoints", "model_with_size.safetensors", "http://example.com/model");
+                    info.setSize("1.23 GB");
+                    return Optional.of(info);
+                }
+                return Optional.empty();
+            }
+        };
+        
+        Field field = ComfyModelAnalyzer.class.getDeclaredField("modelListService");
+        field.setAccessible(true);
+        field.set(analyzer, mockListService);
+
+        String json = "{\"nodes\": [{\"type\": \"CheckpointLoaderSimple\", \"widgets_values\": [\"model_with_size.safetensors\"]}]}";
+        List<ModelInfo> models = analyzer.analyze(json, "test.json");
+
+        assertFalse(models.isEmpty());
+        assertEquals("model_with_size.safetensors", models.get(0).getName());
+        assertEquals("1.23 GB", models.get(0).getSize());
+    }
+
+    @Test
     public void testInvalidJson() {
         ComfyModelAnalyzer analyzer = new ComfyModelAnalyzer();
         List<ModelInfo> models = analyzer.analyze("invalid json", "test.json");

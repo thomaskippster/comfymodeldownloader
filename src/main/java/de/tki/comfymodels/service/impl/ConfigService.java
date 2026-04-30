@@ -122,6 +122,19 @@ public class ConfigService {
         return null;
     }
 
+    public String getComfyUIPath() { return settings.optString("comfyui_path", ""); }
+    public void setComfyUIPath(String path) { settings.put("comfyui_path", path); save(); }
+
+    public String getApiToken() {
+        String token = settings.optString("api_token", "");
+        if (token.isEmpty() && isUnlocked()) {
+            token = java.util.UUID.randomUUID().toString().replace("-", "");
+            settings.put("api_token", token);
+            save();
+        }
+        return token;
+    }
+
     public boolean isUnlocked() {
         return masterPassword != null;
     }

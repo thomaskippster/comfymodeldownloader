@@ -10,6 +10,15 @@ Stop wasting time manually moving files! This tool automates your model manageme
 * **Background Mode:** Keep the downloader running in the system tray.
 * **Vault Security:** Encrypted storage for your API keys (Gemini, Hugging Face).
 
+## 🔌 ComfyUI Integration
+
+To send workflows directly from ComfyUI to the downloader with a single click:
+
+1. Copy or symlink the folder `comfyui-model-downloader` into your `ComfyUI/custom_nodes/` directory.
+2. Restart ComfyUI.
+3. You will now see a **🚀 Downloader** button in the ComfyUI menu (or under the download icon in the new UI v2).
+4. Make sure the Java application is running to receive the workflow.
+
 ## 🚀 Getting Started
 
 ### Prerequisites

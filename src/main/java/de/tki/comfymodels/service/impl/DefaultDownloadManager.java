@@ -29,9 +29,14 @@ public class DefaultDownloadManager implements IDownloadManager {
     private ConfigService configService;
 
     private void safeUpdateStatus(int index, String status, BiConsumer<Integer, String> statusUpdater) {
-        if (completedIndices.contains(index)) return;
+        // Only mark as completed if it's a final state
+        boolean isFinal = status.contains("✅ Finished") || 
+                         status.contains("Stopped") || 
+                         status.contains("Skipped") || 
+                         status.contains("Already exists") ||
+                         status.startsWith("❌ Error");
         
-        if (status.contains("✅ Finished") || status.contains("Stopped") || status.contains("Skipped") || status.contains("Already exists")) {
+        if (isFinal) {
             completedIndices.add(index);
         }
         statusUpdater.accept(index, status);
@@ -43,39 +48,32 @@ public class DefaultDownloadManager implements IDownloadManager {
         isPaused = false;
         this.currentSelection = selectedIndices;
         completedIndices.clear();
+        
+        java.util.concurrent.atomic.AtomicBoolean finishedCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
+        
         new Thread(() -> {
             try {
-                java.util.concurrent.CompletableFuture<?>[] futures = new java.util.concurrent.CompletableFuture[models.size()];
-                for (int i = 0; i < models.size(); i++) {
-                    if (isStopped) {
-                        for (int j = i; j < models.size(); j++) {
-                            futures[j] = java.util.concurrent.CompletableFuture.completedFuture(null);
-                        }
-                        break;
-                    }
-
-                    while (isPaused && !isStopped) {
-                        try {
-                            Thread.sleep(200);
-                        } catch (InterruptedException e) {
-                            Thread.currentThread().interrupt();
-                            break;
-                        }
-                    }
-
+                int size = models.size();
+                java.util.concurrent.CompletableFuture<?>[] futures = new java.util.concurrent.CompletableFuture[size];
+                
+                for (int i = 0; i < size; i++) {
                     final int index = i;
                     
-                    if (!isSelected(index)) { 
-                        safeUpdateStatus(index, "Skipped (Not Selected)", statusUpdater);
-                        futures[i] = java.util.concurrent.CompletableFuture.completedFuture(null);
+                    if (isStopped) {
+                        futures[index] = java.util.concurrent.CompletableFuture.completedFuture(null);
                         continue;
                     }
 
-                    ModelInfo info = models.get(i);
-                    futures[i] = java.util.concurrent.CompletableFuture.runAsync(() -> {
-                        if (isStopped) { safeUpdateStatus(index, "Stopped", statusUpdater); return; }
-                        if (!isSelected(index)) { safeUpdateStatus(index, "Skipped (Not Selected)", statusUpdater); return; }
-                        if (info.getUrl() == null || info.getUrl().startsWith("MISSING")) { safeUpdateStatus(index, "Skipped (No URL)", statusUpdater); return; }
+                    if (!isSelected(index)) { 
+                        safeUpdateStatus(index, "Skipped (Not Selected)", statusUpdater);
+                        futures[index] = java.util.concurrent.CompletableFuture.completedFuture(null);
+                        continue;
+                    }
+
+                    ModelInfo info = models.get(index);
+                    futures[index] = java.util.concurrent.CompletableFuture.runAsync(() -> {
+                        if (isStopped || !isSelected(index)) return;
+                        
                         try {
                             String subPath = info.getSave_path();
                             if (subPath == null || subPath.isEmpty() || "default".equalsIgnoreCase(subPath)) {  
@@ -87,17 +85,24 @@ public class DefaultDownloadManager implements IDownloadManager {
                             Files.createDirectories(targetDir);
                             downloadWithResume(info, targetDir.resolve(info.getName()), index, statusUpdater);  
                         } catch (Exception e) { 
-                            if (isStopped || !isSelected(index)) {
-                                safeUpdateStatus(index, !isSelected(index) ? "Skipped (Unchecked)" : "Stopped", statusUpdater);
-                            } else {
+                            if (!isStopped && isSelected(index)) {
                                 String msg = e.getMessage() != null ? e.getMessage() : e.getClass().getSimpleName();
-                                safeUpdateStatus(index, "Error: " + msg, statusUpdater);
+                                safeUpdateStatus(index, "❌ Error: " + msg, statusUpdater);
                             }
                         }
                     }, executor);
                 }
-                java.util.concurrent.CompletableFuture.allOf(futures).join();
-            } finally { onFinished.run(); }
+                
+                // Wait for all tasks to complete (including skipped ones)
+                try {
+                    java.util.concurrent.CompletableFuture.allOf(futures).join();
+                } catch (Exception ignored) {}
+                
+            } finally {
+                if (finishedCalled.compareAndSet(false, true)) {
+                    onFinished.run();
+                }
+            }
         }).start();
     }
 

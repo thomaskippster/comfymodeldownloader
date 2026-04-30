@@ -14,11 +14,14 @@ dependency-reduced-pom.xml
 # OS files
 Thumbs.db
 .DS_Store
+*.lnk
 
 # --- Project Specific ---
 # Sensitive API keys and secrets
 app_settings.json
 settings.vault
+*.vault
+gemini.bat
 boot.key
 .env
 

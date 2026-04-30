@@ -594,75 +594,41 @@ public class Main extends JFrame {
 
         configService.setComfyUIPath(comfyPath);
         
-        File targetLink = new File(customNodesDir, "comfyui-model-downloader");
-        File sourceDir = new File(System.getProperty("user.dir"), "comfyui-model-downloader");
+        File targetDir = new File(customNodesDir, "comfyui-model-downloader");
         
-        // --- IMPROVEMENT 2: SOURCE VERIFICATION ---
-        if (!sourceDir.exists()) {
-             File parentSource = new File(new File(System.getProperty("user.dir")).getParent(), "comfyui-model-downloader");
-             if (parentSource.exists()) sourceDir = parentSource;
-        }
-
-        if (!sourceDir.exists()) {
-             File altSource = new File(System.getProperty("user.dir"));
-             if (new File(altSource, "__init__.py").exists() && new File(altSource, "web").exists()) {
-                 sourceDir = altSource;
-             }
-        }
-        
-        if (!sourceDir.exists() || !new File(sourceDir, "__init__.py").exists()) {
-            JOptionPane.showMessageDialog(parentDialog, "Source extension folder is invalid or incomplete!\nLooked in: " + sourceDir.getAbsolutePath(), "Error", JOptionPane.ERROR_MESSAGE);
-            return;
-        }
-
         try {
-            // --- IMPROVEMENT 3: ROBUST DELETION OF OLD DIRECTORY/LINK ---
-            if (targetLink.exists()) {
-                if (System.getProperty("os.name").toLowerCase().contains("win")) {
-                    Runtime.getRuntime().exec("cmd /c rmdir \"" + targetLink.getAbsolutePath() + "\"").waitFor();
-                    if (targetLink.exists()) Runtime.getRuntime().exec("cmd /c del /F /Q \"" + targetLink.getAbsolutePath() + "\"").waitFor();
-                }
-                if (targetLink.exists()) deleteDirectory(targetLink);
+            // Cleanup old directory
+            if (targetDir.exists()) {
+                deleteDirectory(targetDir);
             }
+            targetDir.mkdirs();
 
-            boolean success = false;
-            String method = "Unknown";
+            // Extract from resources
+            extractResource("/comfyui-bridge/__init__.py", new File(targetDir, "__init__.py"));
+            File webDir = new File(targetDir, "web");
+            webDir.mkdirs();
+            extractResource("/comfyui-bridge/web/downloader.js", new File(webDir, "downloader.js"));
 
-            if (System.getProperty("os.name").toLowerCase().contains("win")) {
-                String cmdJ = String.format("cmd /c mklink /J \"%s\" \"%s\"", targetLink.getAbsolutePath(), sourceDir.getAbsolutePath());
-                if (Runtime.getRuntime().exec(cmdJ).waitFor() == 0) {
-                    success = true; method = "Junction";
-                } else {
-                    String cmdS = String.format("cmd /c mklink /D \"%s\" \"%s\"", targetLink.getAbsolutePath(), sourceDir.getAbsolutePath());
-                    if (Runtime.getRuntime().exec(cmdS).waitFor() == 0) {
-                        success = true; method = "Symlink";
-                    } else {
-                        copyDirectory(sourceDir, targetLink);
-                        success = targetLink.exists(); method = "Copy";
-                    }
-                }
+            writeExtensionConfig(targetDir);
+            
+            if (new File(targetDir, "__init__.py").exists()) {
+                String msg = "🚀 ComfyUI Bridge installed successfully!\n\n" +
+                             "Location: " + targetDir.getAbsolutePath() + "\n\n" +
+                             "Please RESTART ComfyUI now to see the rocket icon.";
+                JOptionPane.showMessageDialog(parentDialog, msg, "Success", JOptionPane.INFORMATION_MESSAGE);
+                parentDialog.dispose();
             } else {
-                java.nio.file.Files.createSymbolicLink(targetLink.toPath(), sourceDir.toPath());
-                success = true; method = "Symlink";
-            }
-
-            if (success) {
-                writeExtensionConfig(targetLink.exists() && method.equals("Copy") ? targetLink : sourceDir);
-                if (new File(targetLink, "__init__.py").exists()) {
-                    String msg = "🚀 ComfyUI Bridge installed successfully!\n\n" +
-                                 "Method: " + method + "\n" +
-                                 "Location: " + targetLink.getAbsolutePath() + "\n\n" +
-                                 "Please RESTART ComfyUI now to see the rocket icon.";
-                    JOptionPane.showMessageDialog(parentDialog, msg, "Success", JOptionPane.INFORMATION_MESSAGE);
-                    parentDialog.dispose();
-                } else {
-                    throw new Exception("Installation successful but __init__.py not found at target!");
-                }
-            } else {
-                throw new Exception("All installation methods failed.");
+                throw new Exception("Installation failed: __init__.py not found at target!");
             }
         } catch (Exception e) {
             JOptionPane.showMessageDialog(parentDialog, "Critical failure during installation: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);
+        }
+    }
+
+    private void extractResource(String resourcePath, File destination) throws IOException {
+        try (InputStream is = getClass().getResourceAsStream(resourcePath)) {
+            if (is == null) throw new IOException("Resource not found: " + resourcePath);
+            Files.copy(is, destination.toPath(), StandardCopyOption.REPLACE_EXISTING);
         }
     }
 

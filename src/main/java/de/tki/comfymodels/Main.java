@@ -697,10 +697,44 @@ public class Main extends JFrame {
             String type = info.getType() != null ? info.getType() : "checkpoints";
             Path local = Paths.get(base, info.getSave_path() != null ? info.getSave_path() : type, info.getName());
             boolean exists = Files.exists(local);
+            
+            // Populate size from local file if it exists and currently unknown
+            if (exists && "Unknown".equals(info.getSize())) {
+                try {
+                    long bytes = Files.size(local);
+                    info.setSize(searchService.formatSize(bytes));
+                } catch (Exception e) {}
+            }
+
             String status = exists ? "✅ Already exists" : (info.getUrl().equals("MISSING") ? "Idle" : "✅ Known Good");
             tableModel.addRow(new Object[]{!exists, info.getType(), info.getName(), info.getSize(), info.getPopularity(), "models/" + type, info.getUrl(), status});
         }
         downloadButton.setEnabled(!modelsToDownload.isEmpty());
+        
+        // NEW: Automatically fetch missing sizes for remote models in background
+        fetchMissingRemoteSizes();
+    }
+
+    private void fetchMissingRemoteSizes() {
+        if (modelsToDownload == null) return;
+        new Thread(() -> {
+            for (int i = 0; i < modelsToDownload.size(); i++) {
+                final int idx = i;
+                ModelInfo info = modelsToDownload.get(idx);
+                if (!info.getUrl().equals("MISSING") && "Unknown".equals(info.getSize())) {
+                    long size = searchService.getRemoteSize(info.getUrl());
+                    if (size > 0) {
+                        String formatted = searchService.formatSize(size);
+                        info.setSize(formatted);
+                        SwingUtilities.invokeLater(() -> {
+                            if (idx < tableModel.getRowCount()) {
+                                tableModel.setValueAt(formatted, idx, 3);
+                            }
+                        });
+                    }
+                }
+            }
+        }).start();
     }
 
     private void searchMissingOnline() {

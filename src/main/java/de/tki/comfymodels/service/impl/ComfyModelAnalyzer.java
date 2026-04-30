@@ -28,7 +28,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private final Pattern COMP_CLIP_PATTERN = Pattern.compile("(clip|text.encoder|t5|llama|gemma|mistral|qwen|bert|vit|embed)", Pattern.CASE_INSENSITIVE);
     private final Pattern COMP_UNET_PATTERN = Pattern.compile("(unet|diffusion|transformer|dit|model|base|upscale|esrgan|resnet|sampling)", Pattern.CASE_INSENSITIVE);
     private final Pattern MD_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)", Pattern.CASE_INSENSITIVE);
-    private final Pattern NAKED_URL_PATTERN = Pattern.compile("(https?://[a-zA-Z0-9\\-\\.\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
+    private final Pattern NAKED_URL_PATTERN = Pattern.compile("(https?://[a-zA-Z0-9\\-\\._\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
 
     @Override
     public List<ModelInfo> analyze(String jsonText, String fileName) {
@@ -54,6 +54,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     ModelInfo match = listMatch.get();
                     info.setUrl(match.getUrl());
                     info.setSave_path(match.getSave_path());
+                    info.setSize(match.getSize());
                     info.setPopularity("📂 MODEL LIST MATCH");
                 } else {
                     if (aiService != null) {

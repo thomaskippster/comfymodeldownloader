@@ -1,46 +1,65 @@
 # ComfyUI Model Downloader 🚀
 
-Stop wasting time manually moving files! This tool automates your model management so you can stay in the creative flow.
+Stop wasting time manually moving files! This tool automates your model management so you can stay in the creative flow. It analyzes your workflows, identifies missing models, and downloads them directly into the correct ComfyUI directories.
 
 ## ✨ Features
-* **Automated Downloads:** Get your models directly into the right ComfyUI folders.
-* **Organized Structure:** No more messy `models/` directory.
-* **Fast & Lightweight:** Built for speed and minimal overhead.
-* **Shutdown after Queue:** Automatically shut down your PC after long download sessions.
-* **Background Mode:** Keep the downloader running in the system tray.
-* **Vault Security:** Encrypted storage for your API keys (Gemini, Hugging Face).
 
-## 🔌 ComfyUI Integration
+*   **🚀 1-Click Workflow Import:** Send workflows directly from ComfyUI to the downloader via the integrated Bridge.
+*   **🧠 AI-Powered Analysis:** Uses Gemini AI (or local AI) to intelligently identify models and find download links even if metadata is missing.
+*   **📦 Archive Manager:** Keep your models directory clean! Move rarely used models to an archive and restore them instantly when a workflow requires them.
+*   **👯 Storage Optimizer:** Detects duplicate models using SHA-256 hashing to save disk space.
+*   **🔍 Corrupted File Detection:** Validates models (Safetensors, etc.) to ensure they aren't corrupted or incomplete.
+*   **🌐 Online Search:** Automatically searches CivitAI, HuggingFace, and other sources for missing models.
+*   **🛡️ Vault Security:** Encrypted storage for your sensitive API keys and tokens.
+*   **📉 Smart Queue:** Multi-threaded downloading with resume support and low disk space warnings.
+*   **🌗 ComfyUI Aesthetic:** A modern dark UI that matches the ComfyUI look and feel.
+*   **💤 Automation:** Background mode (Tray) and optional system shutdown after queue completion.
 
-To send workflows directly from ComfyUI to the downloader with a single click:
+## 🔌 ComfyUI Bridge Setup
 
-1. Copy or symlink the folder `comfyui-model-downloader` into your `ComfyUI/custom_nodes/` directory.
-2. Restart ComfyUI.
-3. You will now see a **🚀 Downloader** button in the ComfyUI menu (or under the download icon in the new UI v2).
-4. Make sure the Java application is running to receive the workflow.
+The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" button.
+
+### Automatic Installation (Recommended)
+1.  Open the Downloader App.
+2.  Go to **Settings** -> **ComfyUI Bridge...**.
+3.  Select your ComfyUI main directory and click **Start Installation**.
+4.  Restart ComfyUI.
+
+### Manual Installation
+1.  Copy the folder `src/main/resources/comfyui-bridge` into your `ComfyUI/custom_nodes/` directory.
+2.  Rename it to `comfyui-model-downloader`.
+3.  Restart ComfyUI.
 
 ## 🚀 Getting Started
 
 ### Prerequisites
-* Java 17 or higher
-* Maven
+*   **Java 17 or higher** (Required to run the application)
+*   **Maven** (Required for building from source)
 
-### Build and Run
-1. Clone this repo:
-   ```bash
-   git clone https://github.com/thomaskippster/comfymodeldownloader
-   ```
-2. Build the application:
-   ```bash
-   mvn clean package
-   ```
-3. Run the application:
-   ```bash
-   java -jar target/ComfyUIModelDownloader.jar
-   ```
+### Installation
+1.  Download the latest release or clone the repo:
+    ```bash
+    git clone https://github.com/thomaskippster/comfymodeldownloader
+    ```
+2.  Build the application:
+    ```bash
+    mvn clean package
+    ```
+3.  Run the application:
+    ```bash
+    java -jar target/comfyuimodel-downloader-1.0.5.jar
+    ```
 
-## 💡 Why use this?
-Manually downloading GBs of data and navigating deep folder structures is tedious. This tool bridges the gap between finding a model and using it in your workflow instantly by analyzing your ComfyUI JSON or PNG files.
+## 📖 How to use
+
+1.  **Configure Paths:** Go to **Settings -> Directories** and set your ComfyUI models path and an archive path.
+2.  **Unlock Vault:** Set a password to encrypt your API keys.
+3.  **Add Keys:** Under **Settings -> AI & API Keys**, add your Gemini API Key and HuggingFace Token for best results.
+4.  **Analyze Workflow:**
+    *   Drag & Drop a `.json` or `.png` file into the app.
+    *   OR: Click the 🚀 icon in ComfyUI to send it automatically.
+5.  **Review & Download:** The app lists all models. It checks if they already exist, are in the archive, or need to be downloaded.
+6.  **Start Queue:** Hit "Start Queue". Archived models will be restored automatically, and missing ones will be downloaded.
 
 ---
 

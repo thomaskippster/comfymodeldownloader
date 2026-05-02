@@ -113,7 +113,7 @@ public class ModelSearchService implements IModelSearchService {
 
         // Priority 2: Civitai Hash Lookup
         String modelsPath = configService.getModelsPath();
-        java.io.File localFile = new java.io.File(modelsPath, (info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : "checkpoints")) + java.io.File.separator + info.getName());
+        java.io.File localFile = new java.io.File(modelsPath, (info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName())) + java.io.File.separator + info.getName());
         if (localFile.exists()) {
             onStatusUpdate.accept(index, "🔍 Hashing for Civitai...");
             String hash = hashRegistry.getOrCalculateHash(localFile);
@@ -163,6 +163,67 @@ public class ModelSearchService implements IModelSearchService {
         onStatusUpdate.accept(index, "❌ No trusted match found");
     }
 
+    @Override
+    public Optional<ModelInfo> checkForUpdate(ModelInfo current) {
+        String modelsPath = configService.getModelsPath();
+        String subPath = (current.getSave_path() != null ? current.getSave_path() : (current.getType() != null ? current.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName()));
+        java.io.File localFile = new java.io.File(modelsPath, subPath + java.io.File.separator + current.getName());
+
+        if (!localFile.exists()) {
+            return Optional.empty();
+        }
+
+        String hash = hashRegistry.getOrCalculateHash(localFile);
+        if (hash == null) return Optional.empty();
+
+        try {
+            String hashUrl = getCivitaiApiBaseUrl() + "/model-versions/by-hash/" + hash;
+            HttpResponse<String> hashRes = httpClient.send(HttpRequest.newBuilder().uri(URI.create(hashUrl)).build(), HttpResponse.BodyHandlers.ofString());
+            if (hashRes.statusCode() != 200) return Optional.empty();
+
+            JSONObject currentVersion = new JSONObject(hashRes.body());
+            int modelId = currentVersion.optInt("modelId", -1);
+            int currentVersionId = currentVersion.optInt("id", -1);
+            if (modelId == -1 || currentVersionId == -1) return Optional.empty();
+
+            String modelUrl = getCivitaiApiBaseUrl() + "/models/" + modelId;
+            HttpResponse<String> modelRes = httpClient.send(HttpRequest.newBuilder().uri(URI.create(modelUrl)).build(), HttpResponse.BodyHandlers.ofString());
+            if (modelRes.statusCode() != 200) return Optional.empty();
+
+            JSONObject modelData = new JSONObject(modelRes.body());
+            JSONArray versions = modelData.optJSONArray("modelVersions");
+            if (versions == null || versions.length() == 0) return Optional.empty();
+
+            JSONObject latestVersion = versions.getJSONObject(0);
+            int latestVersionId = latestVersion.optInt("id", -1);
+
+            if (latestVersionId != -1 && latestVersionId != currentVersionId) {
+                JSONArray files = latestVersion.optJSONArray("files");
+                if (files != null) {
+                    for (int i = 0; i < files.length(); i++) {
+                        JSONObject file = files.getJSONObject(i);
+                        if (file.optBoolean("primary", false) || files.length() == 1) {
+                            ModelInfo updated = new ModelInfo();
+                            updated.setType(current.getType());
+                            updated.setSave_path(current.getSave_path());
+                            updated.setName(file.getString("name"));
+                            updated.setUrl(file.getString("downloadUrl"));
+
+                            long size = getRemoteSize(updated.getUrl());
+                            updated.setByteSize(size);
+                            updated.setSize(formatSize(size));
+                            updated.setPopularity("⭐ UPDATE: " + latestVersion.optString("name", "New Version"));
+                            return Optional.of(updated);
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            // Fail silently
+        }
+        return Optional.empty();
+    }
+
     private boolean validateAndSetUrl(ModelInfo info, int rowIndex, String url, String popPrefix,
                                      BiConsumer<Integer, String> onStatusUpdate,
                                      BiConsumer<Integer, ModelInfo> onModelFound) {
@@ -176,6 +237,7 @@ public class ModelSearchService implements IModelSearchService {
         if (size > 100) {
             info.setUrl(url);
             info.setPopularity(popPrefix);
+            info.setByteSize(size);
             info.setSize(formatSize(size));
             onModelFound.accept(rowIndex, info);
             return true;

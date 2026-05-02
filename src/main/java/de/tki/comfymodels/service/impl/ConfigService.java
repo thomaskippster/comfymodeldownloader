@@ -7,6 +7,8 @@ import org.springframework.stereotype.Service;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 
 @Service
 public class ConfigService {
@@ -14,12 +16,20 @@ public class ConfigService {
     private final String VAULT_FILE = "settings.vault";
     private JSONObject settings = new JSONObject();
     private String masterPassword = null;
+    private boolean vaultFresh = false;
 
     private final EncryptionUtils encryptionUtils;
+    private final PathResolver pathResolver;
 
     @Autowired
-    public ConfigService(EncryptionUtils encryptionUtils) {
+    public ConfigService(EncryptionUtils encryptionUtils, PathResolver pathResolver) {
         this.encryptionUtils = encryptionUtils;
+        this.pathResolver = pathResolver;
+    }
+
+    @jakarta.annotation.PostConstruct
+    public void init() {
+        pathResolver.setComfyUIRoot(getComfyUIPath());
     }
 
     /**
@@ -64,9 +74,14 @@ public class ConfigService {
                 }
             } else {
                 System.out.println("No vault found, initialized new empty vault at: " + vault.getAbsolutePath());
+                this.vaultFresh = true;
                 save();
             }
         }
+    }
+
+    public boolean isVaultFresh() {
+        return vaultFresh;
     }
 
     public void save() {
@@ -90,8 +105,18 @@ public class ConfigService {
     public String getHfToken() { return settings.optString("hf_token", ""); }
     public void setHfToken(String token) { settings.put("hf_token", token); save(); }
 
-    public String getModelsPath() { return settings.optString("models_path", "C:\\pinokio\\api\\comfy.git\\app\\models"); }
+    public String getModelsPath() { 
+        String path = settings.optString("models_path", PathResolver.MODELS_DIR);
+        return pathResolver.resolveModelsPath(path).toString();
+    }
     public void setModelsPath(String path) { settings.put("models_path", path); save(); }
+
+    public String getArchivePath() { 
+        String path = settings.optString("archive_path", PathResolver.ARCHIVE_DIR);
+        Path modelsPath = Paths.get(getModelsPath());
+        return pathResolver.resolveArchivePath(modelsPath, path).toString();
+    }
+    public void setArchivePath(String path) { settings.put("archive_path", path); save(); }
 
     public boolean isBackgroundModeEnabled() { return settings.optBoolean("background_mode", false); }
     public void setBackgroundModeEnabled(boolean enabled) { settings.put("background_mode", enabled); save(); }
@@ -123,7 +148,11 @@ public class ConfigService {
     }
 
     public String getComfyUIPath() { return settings.optString("comfyui_path", ""); }
-    public void setComfyUIPath(String path) { settings.put("comfyui_path", path); save(); }
+    public void setComfyUIPath(String path) { 
+        settings.put("comfyui_path", path); 
+        pathResolver.setComfyUIRoot(path);
+        save(); 
+    }
 
     public String getApiToken() {
         String token = settings.optString("api_token", "");
@@ -137,5 +166,20 @@ public class ConfigService {
 
     public boolean isUnlocked() {
         return masterPassword != null;
+    }
+
+    public boolean hasVault() {
+        return getFileInAppData(VAULT_FILE).exists();
+    }
+
+    public void resetVault() {
+        File vault = getFileInAppData(VAULT_FILE);
+        if (vault.exists()) {
+            vault.delete();
+        }
+        this.settings = new JSONObject();
+        this.masterPassword = null;
+        this.vaultFresh = true;
+        System.out.println("Vault has been reset.");
     }
 }

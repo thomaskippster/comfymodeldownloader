@@ -2,6 +2,7 @@ package de.tki.comfymodels.service;
 
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.EncryptionUtils;
+import de.tki.comfymodels.service.impl.PathResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 import java.io.File;
@@ -19,7 +20,7 @@ public class VaultIntegrationTest {
     @Test
     public void testVaultSaveAndLoad() throws Exception {
         // Setup ConfigService with temp directory
-        ConfigService configService = new ConfigService(encryptionUtils) {
+        ConfigService configService = new ConfigService(encryptionUtils, new PathResolver()) {
             @Override
             public String getAppDataPath() {
                 return tempDir.toString();
@@ -37,7 +38,7 @@ public class VaultIntegrationTest {
         configService.save();
 
         // 3. Create NEW instance to simulate restart
-        ConfigService newConfigService = new ConfigService(encryptionUtils) {
+        ConfigService newConfigService = new ConfigService(encryptionUtils, new PathResolver()) {
             @Override
             public String getAppDataPath() {
                 return tempDir.toString();
@@ -54,7 +55,7 @@ public class VaultIntegrationTest {
         newConfigService.setDarkMode(true);
         
         // 5a. Reload again to verify dark mode persistence
-        ConfigService restartService = new ConfigService(encryptionUtils) {
+        ConfigService restartService = new ConfigService(encryptionUtils, new PathResolver()) {
             @Override
             public String getAppDataPath() {
                 return tempDir.toString();
@@ -64,7 +65,7 @@ public class VaultIntegrationTest {
         assertTrue(restartService.isDarkMode(), "Dark mode should be true after reload");
 
         // 6. Verify wrong password fails
-        ConfigService wrongPassService = new ConfigService(encryptionUtils) {
+        ConfigService wrongPassService = new ConfigService(encryptionUtils, new PathResolver()) {
             @Override
             public String getAppDataPath() {
                 return tempDir.toString();

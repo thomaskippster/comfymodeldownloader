@@ -10,4 +10,9 @@ public interface IDownloadManager {
     void togglePause();
     void stop();
     boolean isPaused();
+
+    /**
+     * Returns a map of current statuses for each model in the queue.
+     */
+    java.util.Map<Integer, String> getQueueStatus();
 }

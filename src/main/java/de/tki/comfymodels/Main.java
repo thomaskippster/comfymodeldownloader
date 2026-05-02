@@ -10,6 +10,7 @@ import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.GeminiAIService;
 import de.tki.comfymodels.service.impl.ModelListService;
 import de.tki.comfymodels.service.impl.ModelHashRegistry;
+import de.tki.comfymodels.ui.DotGridPanel;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatLaf;
@@ -53,6 +54,7 @@ public class Main extends JFrame {
     private final IModelSearchService searchService;
     private final IModelValidator modelValidator;
     private final de.tki.comfymodels.service.impl.RestBridgeService restBridge;
+    private final de.tki.comfymodels.service.impl.ArchiveService archiveService;
 
     @Autowired
     private ConfigService configService;
@@ -66,10 +68,12 @@ public class Main extends JFrame {
     @Autowired
     private ModelHashRegistry hashRegistry;
 
-    private JTextField modelsPathField;
-    private JTextField comfyPathField;
-    private JPasswordField geminiKeyField;
-    private JPasswordField hfTokenField;
+    @Autowired
+    private de.tki.comfymodels.service.impl.LocalModelScanner localScanner;
+
+    @Autowired
+    private de.tki.comfymodels.service.impl.PathResolver pathResolver;
+
     private JCheckBox backgroundCheck;
     private JCheckBox shutdownCheck;
     private JCheckBox darkCheck;
@@ -80,19 +84,28 @@ public class Main extends JFrame {
     private JButton downloadButton, pauseButton, stopButton;
     private List<ModelInfo> modelsToDownload;
     private String currentFileName = "input.json";
+    private Image appIcon;
 
     public Main(IModelAnalyzer analyzer, IDownloadManager downloadManager,
                 IWorkflowService workflowService, IModelSearchService searchService,
-                IModelValidator modelValidator, de.tki.comfymodels.service.impl.RestBridgeService restBridge) {
+                IModelValidator modelValidator, de.tki.comfymodels.service.impl.RestBridgeService restBridge,
+                de.tki.comfymodels.service.impl.ArchiveService archiveService) {
         this.analyzer = analyzer;
         this.downloadManager = downloadManager;
         this.workflowService = workflowService;
         this.searchService = searchService;
         this.modelValidator = modelValidator;
         this.restBridge = restBridge;
+        this.archiveService = archiveService;
     }
 
     public void launch(String[] args) {
+        if (de.tki.comfymodels.util.PlatformUtils.isMac()) {
+            System.setProperty("apple.laf.useScreenMenuBar", "true");
+            System.setProperty("apple.awt.application.name", "ComfyUI Model Downloader");
+            System.setProperty("apple.awt.application.appearance", "system");
+        }
+
         // Initialize REST Bridge consumer EARLY
         restBridge.setWorkflowConsumer(workflowJson -> {
             SwingUtilities.invokeLater(() -> {
@@ -100,6 +113,7 @@ public class Main extends JFrame {
                     jsonInputArea.setText(workflowJson);
                     currentFileName = "remote_workflow.json";
                     analyzeJsonContent();
+                    searchMissingOnline(); // NEW: Automatically perform Deep Search to verify sizes/links
                 }
                 setVisible(true);
                 toFront();
@@ -118,23 +132,7 @@ public class Main extends JFrame {
         }
 
         // Apply theme before UI initialization
-        try {
-            if (configService.isDarkMode()) {
-                FlatDarkLaf.setup();
-            } else {
-                FlatLightLaf.setup();
-            }
-        } catch (Exception e) {
-            System.err.println("Theme setup failed: " + e.getMessage());
-        }
-        FlatLaf.updateUI();
-        
-        // Modern UI tweaks
-        UIManager.put("TitlePane.unifiedBackground", true);
-        UIManager.put("Button.arc", 8);
-        UIManager.put("Component.arc", 8);
-        UIManager.put("TextComponent.arc", 8);
-        UIManager.put("ProgressBar.arc", 8);
+        setupTheme(configService.isDarkMode());
         
         SwingUtilities.invokeLater(() -> {
             try {
@@ -164,15 +162,121 @@ public class Main extends JFrame {
         });
     }
 
+    private void setupTheme(boolean darkMode) {
+        try {
+            // Global arcs for a modern feel
+            UIManager.put("Button.arc", 8);
+            UIManager.put("Component.arc", 8);
+            UIManager.put("TextComponent.arc", 8);
+            UIManager.put("ProgressBar.arc", 8);
+            UIManager.put("TitlePane.unifiedBackground", true);
+
+            if (darkMode) {
+                // ComfyUI Dark Palette - using ColorUIResource to play nice with L&F
+                Color nodeBg = new javax.swing.plaf.ColorUIResource(43, 43, 43); 
+                Color comfySurface = new javax.swing.plaf.ColorUIResource(32, 32, 32); 
+                Color comfyAccent = new javax.swing.plaf.ColorUIResource(255, 204, 0); 
+                Color comfyText = new javax.swing.plaf.ColorUIResource(204, 204, 204); 
+                Color comfyBorder = new javax.swing.plaf.ColorUIResource(55, 55, 55);
+
+                UIManager.put("DefaultBackgroundColor", comfySurface);
+                UIManager.put("Panel.background", nodeBg);
+                UIManager.put("Table.background", comfySurface);
+                UIManager.put("TextArea.background", comfySurface);
+                UIManager.put("TextField.background", new javax.swing.plaf.ColorUIResource(40, 40, 40));
+                UIManager.put("PasswordField.background", new javax.swing.plaf.ColorUIResource(40, 40, 40));
+                
+                UIManager.put("Label.foreground", comfyText);
+                UIManager.put("Table.foreground", comfyText);
+                UIManager.put("TextArea.foreground", comfyText);
+                
+                UIManager.put("Table.selectionBackground", new javax.swing.plaf.ColorUIResource(new Color(255, 204, 0, 60))); 
+                UIManager.put("Table.selectionForeground", Color.WHITE);
+                UIManager.put("Component.focusedBorderColor", comfyAccent);
+                UIManager.put("Separator.foreground", comfyBorder);
+                
+                UIManager.put("Button.background", new javax.swing.plaf.ColorUIResource(50, 50, 50));
+                UIManager.put("Button.foreground", comfyText);
+                UIManager.put("Button.focusedBackground", new javax.swing.plaf.ColorUIResource(58, 117, 196)); 
+                UIManager.put("Button.hoverBackground", new javax.swing.plaf.ColorUIResource(70, 130, 210));
+                UIManager.put("Button.pressedBackground", new javax.swing.plaf.ColorUIResource(30, 30, 30));
+                UIManager.put("Button.borderColor", comfyBorder);
+                
+                UIManager.put("ScrollBar.track", comfySurface);
+                UIManager.put("ScrollBar.thumb", new javax.swing.plaf.ColorUIResource(70, 70, 70));
+                
+                UIManager.put("TabbedPane.selectedBackground", comfyAccent);
+                UIManager.put("TabbedPane.selectedForeground", Color.BLACK);
+                
+                UIManager.setLookAndFeel(new FlatDarkLaf());
+            } else {
+                // EXHAUSTIVE cleanup of custom overrides
+                String[] keysToClear = {
+                    "DefaultBackgroundColor", "Panel.background", "Table.background", "TextArea.background",
+                    "TextField.background", "PasswordField.background", "Label.foreground",
+                    "Table.foreground", "TextArea.foreground", "Table.selectionBackground",
+                    "Table.selectionForeground", "Component.focusedBorderColor", "Separator.foreground",
+                    "Button.background", "Button.foreground", "Button.focusedBackground",
+                    "Button.hoverBackground", "Button.pressedBackground", "Button.borderColor",
+                    "ScrollBar.track", "ScrollBar.thumb", "TabbedPane.selectedBackground",
+                    "TabbedPane.selectedForeground"
+                };
+                for (String key : keysToClear) {
+                    UIManager.put(key, null);
+                }
+                UIManager.setLookAndFeel(new FlatLightLaf());
+            }
+            
+            // Re-apply global arcs which might be cleared by setLookAndFeel
+            UIManager.put("Button.arc", 8);
+            UIManager.put("Component.arc", 8);
+            UIManager.put("TextComponent.arc", 8);
+            UIManager.put("ProgressBar.arc", 8);
+            
+            FlatLaf.updateUI();
+            SwingUtilities.updateComponentTreeUI(this);
+        } catch (Exception e) {
+            System.err.println("Theme setup failed: " + e.getMessage());
+        }
+    }
+
+    private void loadIcon() {
+        try (InputStream is = getClass().getResourceAsStream("/icons/app_icon.jpg")) {
+            if (is != null) {
+                appIcon = javax.imageio.ImageIO.read(is);
+                if (appIcon != null) {
+                    setIconImage(appIcon);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Could not load app icon: " + e.getMessage());
+        }
+    }
+
     private void setupTrayIcon() {
-        if (!SystemTray.isSupported()) return;
+        if (!de.tki.comfymodels.util.PlatformUtils.isSystemTraySupported()) {
+            System.err.println("[System-Tray] Not supported on this platform (e.g. Wayland). Background mode disabled.");
+            if (backgroundCheck != null) {
+                backgroundCheck.setSelected(false);
+                backgroundCheck.setEnabled(false);
+                backgroundCheck.setToolTipText("System Tray not supported on this OS.");
+                configService.setBackgroundModeEnabled(false);
+            }
+            return;
+        }
 
         SystemTray tray = SystemTray.getSystemTray();
-        BufferedImage image = new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB);
-        Graphics2D g2 = image.createGraphics();
-        g2.setColor(new Color(255, 105, 180)); // Hot Pink
-        g2.fillRect(0, 0, 16, 16);
-        g2.dispose();
+        Image trayImage = appIcon;
+        
+        // Fallback if appIcon failed to load
+        if (trayImage == null) {
+            BufferedImage fallback = new BufferedImage(16, 16, BufferedImage.TYPE_INT_RGB);
+            Graphics2D g2 = fallback.createGraphics();
+            g2.setColor(new Color(255, 204, 0));
+            g2.fillRect(0, 0, 16, 16);
+            g2.dispose();
+            trayImage = fallback;
+        }
 
         PopupMenu popup = new PopupMenu();
         MenuItem showItem = new MenuItem("Show UI");
@@ -187,7 +291,7 @@ public class Main extends JFrame {
         popup.addSeparator();
         popup.add(exitItem);
 
-        TrayIcon trayIcon = new TrayIcon(image, "ComfyUI Model Downloader", popup);
+        TrayIcon trayIcon = new TrayIcon(trayImage, "ComfyUI Model Downloader", popup);
         trayIcon.setImageAutoSize(true);
         trayIcon.addActionListener(e -> setVisible(true));
 
@@ -200,15 +304,43 @@ public class Main extends JFrame {
 
     private boolean promptForPassword() {
         while (true) {
+            boolean vaultExists = configService.hasVault();
+            String title = vaultExists ? "Vault Unlock" : "Vault Setup";
+            String prompt = vaultExists ? "Enter Vault Password (to unlock API Keys):" : "Set Vault Password (to protect API Keys):";
+
             JPanel panel = new JPanel(new BorderLayout(5, 5));
-            panel.add(new JLabel("Enter Vault Password (to unlock API Keys):"), BorderLayout.NORTH);
+            panel.add(new JLabel(prompt), BorderLayout.NORTH);
             JPasswordField pf = new JPasswordField();
             panel.add(pf, BorderLayout.CENTER);
             
             SwingUtilities.invokeLater(() -> pf.requestFocusInWindow());
             
-            int ok = JOptionPane.showConfirmDialog(null, panel, "Vault Unlock", JOptionPane.OK_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE);
-            if (ok != JOptionPane.OK_OPTION) return false;
+            Object[] options;
+            if (vaultExists) {
+                options = new Object[]{"Unlock", "Cancel", "Reset Vault (Forgot Password?)"};
+            } else {
+                options = new Object[]{"Set Password", "Cancel"};
+            }
+
+            int choice = JOptionPane.showOptionDialog(null, panel, title,
+                    JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.QUESTION_MESSAGE,
+                    null, options, options[0]);
+
+            if (choice == 1 || choice == JOptionPane.CLOSED_OPTION) return false; // Cancel or Closed
+
+            if (vaultExists && choice == 2) { // Reset Vault
+                int confirm = JOptionPane.showConfirmDialog(null,
+                    "Warning: Resetting the vault will delete all your stored API keys.\n" +
+                    "This action cannot be undone. Do you want to proceed?",
+                    "Confirm Vault Reset", JOptionPane.YES_NO_OPTION, JOptionPane.WARNING_MESSAGE);
+
+                if (confirm == JOptionPane.YES_OPTION) {
+                    configService.resetVault();
+                    continue; // Restart loop for fresh setup
+                } else {
+                    continue; // Back to prompt
+                }
+            }
 
             String pass = new String(pf.getPassword());
             if (pass.trim().isEmpty()) {
@@ -219,6 +351,14 @@ public class Main extends JFrame {
             try {
                 configService.unlock(pass);
                 restBridge.setApiToken(configService.getApiToken());
+                syncBridgeToken();
+                
+                // NEW: Auto-import model list on first start or vault reset
+                if (configService.isVaultFresh()) {
+                    String url = "https://raw.githubusercontent.com/Comfy-Org/ComfyUI-Manager/main/model-list.json";
+                    modelListService.importFromUrl(url);
+                }
+                
                 return true;
             } catch (Exception e) {
                 JOptionPane.showMessageDialog(null, "Unlock Failed: " + e.getMessage(), "Error", JOptionPane.ERROR_MESSAGE);        
@@ -227,10 +367,6 @@ public class Main extends JFrame {
     }
 
     private void loadSettingsIntoUI() {
-        if (modelsPathField != null) modelsPathField.setText(configService.getModelsPath());
-        if (comfyPathField != null) comfyPathField.setText(configService.getComfyUIPath());
-        if (geminiKeyField != null) geminiKeyField.setText(configService.getGeminiApiKey());
-        if (hfTokenField != null) hfTokenField.setText(configService.getHfToken());
         if (backgroundCheck != null) backgroundCheck.setSelected(configService.isBackgroundModeEnabled());
         if (shutdownCheck != null) shutdownCheck.setSelected(configService.isShutdownAfterDownloadEnabled());
         if (darkCheck != null) darkCheck.setSelected(configService.isDarkMode());
@@ -244,83 +380,29 @@ public class Main extends JFrame {
     }
 
     private void initUI() {
+        loadIcon();
         setTitle("ComfyUIModel-Downloader");
-        setSize(1450, 1000);
+        setSize(1450, 900);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
         getRootPane().putClientProperty("flatlaf.useWindowDecorations", true);
         
-        JPanel mainContainer = new JPanel(new BorderLayout(10, 10));
+        JPanel mainContainer = new DotGridPanel(new BorderLayout(10, 10));
         mainContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         setContentPane(mainContainer);
 
-        JPanel settingsPanel = new JPanel(new GridLayout(5, 1, 5, 5));
 
-        // Row 1: Models Directory
-        JPanel pathRow = new JPanel(new BorderLayout());
-        pathRow.setBorder(BorderFactory.createTitledBorder("Models Directory"));
-        modelsPathField = new JTextField();
-        JButton browsePathBtn = new JButton("Set Folder...");
-        browsePathBtn.addActionListener(e -> {
-            JFileChooser chooser = new JFileChooser();
-            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
-            if (chooser.showOpenDialog(this) == JFileChooser.APPROVE_OPTION) {
-                modelsPathField.setText(chooser.getSelectedFile().getAbsolutePath());
-                configService.setModelsPath(modelsPathField.getText());
-            }
-        });
-        JButton savePathBtn = new JButton("Save Path");
-        savePathBtn.addActionListener(e -> {
-            configService.setModelsPath(modelsPathField.getText());
-            statusLabel.setText("Models path saved.");
-        });
-        JPanel pathButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT, 0, 0));
-        pathButtons.add(savePathBtn);
-        pathButtons.add(browsePathBtn);
-        pathRow.add(modelsPathField, BorderLayout.CENTER);
-        pathRow.add(pathButtons, BorderLayout.EAST);
+        // --- NEW COMPACT TOOLBAR ---
+        JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
+        toolbar.setBorder(BorderFactory.createEtchedBorder());
 
-        // Row 2: ComfyUI Installation (Simplified in Main)
-        JPanel comfyRow = new JPanel(new BorderLayout());
-        comfyRow.setBorder(BorderFactory.createTitledBorder("ComfyUI Integration"));
-        JButton openInstallDialogBtn = new JButton("🚀 Install/Update Bridge...");
-        openInstallDialogBtn.addActionListener(e -> showInstallationDialog());
-        comfyRow.add(openInstallDialogBtn, BorderLayout.CENTER);
-
-        // Row 3: Gemini API Key
-        JPanel apiRow = new JPanel(new BorderLayout());
-        apiRow.setBorder(BorderFactory.createTitledBorder("Gemini AI API Key (Optional)"));
-        geminiKeyField = new JPasswordField();
-        JButton saveGeminiBtn = new JButton("Save & Discover");
-        saveGeminiBtn.addActionListener(e -> {
-            configService.setGeminiApiKey(new String(geminiKeyField.getPassword()));
-            updateAiModelDisplay();
-        });
-        apiRow.add(geminiKeyField, BorderLayout.CENTER);
-        apiRow.add(saveGeminiBtn, BorderLayout.EAST);
-
-        // Row 4: Hugging Face Token
-        JPanel hfRow = new JPanel(new BorderLayout());
-        hfRow.setBorder(BorderFactory.createTitledBorder("Hugging Face Access Token (Optional)"));
-        hfTokenField = new JPasswordField();
-        JButton saveHfBtn = new JButton("Save HF Token");
-        saveHfBtn.addActionListener(e -> {
-            configService.setHfToken(new String(hfTokenField.getPassword()));
-            statusLabel.setText("HF Token saved.");
-            analyzeJsonContent();
-        });
-        hfRow.add(hfTokenField, BorderLayout.CENTER);
-        hfRow.add(saveHfBtn, BorderLayout.EAST);
-
-        // Row 5: Options & Info
-        JPanel infoRow = new JPanel(new FlowLayout(FlowLayout.LEFT));
-        activeAiModelLabel = new JLabel("Active AI: Loading...");
-        JButton helpBtn = new JButton("ℹ Help");
-        helpBtn.addActionListener(e -> showHelpDialog());
-        JButton verifyBtn = new JButton("🔍 Fast Verify (Corruption)");
+        JButton settingsBtn = new JButton("⚙ Settings...");
+        settingsBtn.addActionListener(e -> showSettingsMenu(settingsBtn));
+        
+        JButton verifyBtn = new JButton("🔍 Fast Verify");
         verifyBtn.addActionListener(e -> verifyLocalModels(false));
         
-        JButton optimizeBtn = new JButton("👯 Storage Optimizer (Duplicates)");
+        JButton optimizeBtn = new JButton("👯 Storage Optimizer");
         optimizeBtn.addActionListener(e -> {
             int confirm = JOptionPane.showConfirmDialog(this, 
                 "The Storage Optimizer calculates SHA-256 hashes for all local models.\n" +
@@ -331,31 +413,36 @@ public class Main extends JFrame {
             }
         });
 
+        JButton archiveBtn = new JButton("📦 Archive...");
+        archiveBtn.addActionListener(e -> showArchiveDialog());
+
+        JButton helpBtn = new JButton("ℹ Help");
+        helpBtn.addActionListener(e -> showHelpDialog());
+
         backgroundCheck = new JCheckBox("Stay in Background");
         backgroundCheck.addActionListener(e -> configService.setBackgroundModeEnabled(backgroundCheck.isSelected()));
         shutdownCheck = new JCheckBox("Shutdown after Queue");
         shutdownCheck.addActionListener(e -> configService.setShutdownAfterDownloadEnabled(shutdownCheck.isSelected()));
         darkCheck = new JCheckBox("Dark Mode");
         darkCheck.addActionListener(e -> {
-            configService.setDarkMode(darkCheck.isSelected());
+            boolean isDark = darkCheck.isSelected();
+            configService.setDarkMode(isDark);
             FlatAnimatedLafChange.showSnapshot();
-            if (darkCheck.isSelected()) FlatDarkLaf.setup(); else FlatLightLaf.setup();
-            FlatLaf.updateUI();
+            setupTheme(isDark);
+            revalidate();
+            repaint();
             FlatAnimatedLafChange.hideSnapshotWithAnimation();
         });
-        infoRow.add(new JSeparator(JSeparator.VERTICAL));
-        infoRow.add(helpBtn);
-        infoRow.add(verifyBtn);
-        infoRow.add(optimizeBtn);
-        infoRow.add(backgroundCheck);
-        infoRow.add(shutdownCheck);
-        infoRow.add(darkCheck);
 
-        settingsPanel.add(pathRow);
-        settingsPanel.add(comfyRow);
-        settingsPanel.add(apiRow);
-        settingsPanel.add(hfRow);
-        settingsPanel.add(infoRow);
+        toolbar.add(settingsBtn);
+        toolbar.add(new JSeparator(JSeparator.VERTICAL));
+        toolbar.add(verifyBtn);
+        toolbar.add(optimizeBtn);
+        toolbar.add(archiveBtn);
+        toolbar.add(new JSeparator(JSeparator.VERTICAL));
+        toolbar.add(backgroundCheck);
+        toolbar.add(shutdownCheck);
+        toolbar.add(darkCheck);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
         JPanel jsonPanel = new JPanel(new BorderLayout());
@@ -397,7 +484,13 @@ public class Main extends JFrame {
         String[] columnNames = {"Select", "Type", "Name", "Size", "AI Source", "Target Path", "URL", "Status"}; 
         tableModel = new DefaultTableModel(columnNames, 0) {
             @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }   
-            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
+            @Override public boolean isCellEditable(int r, int c) { 
+                if (c == 0) {
+                    String status = (String) getValueAt(r, 7);
+                    return status != null && !status.contains("Already exists");
+                }
+                return false; 
+            }
         };
         tableModel.addTableModelListener(e -> {
             if (e.getType() == TableModelEvent.UPDATE && e.getColumn() == 0) updateDownloadManagerSelection();
@@ -417,6 +510,7 @@ public class Main extends JFrame {
         statusLabel = new JLabel("Ready");
         
         JPanel progressPanel = new JPanel(new GridLayout(2, 1));
+        activeAiModelLabel = new JLabel("Active AI: Loading...");
         activeAiModelLabel.setFont(new Font("SansSerif", Font.ITALIC, 11));
         activeAiModelLabel.setForeground(Color.GRAY);
         progressPanel.add(statusLabel);
@@ -440,29 +534,243 @@ public class Main extends JFrame {
         bottomPanel.add(progressPanel, BorderLayout.CENTER);
         bottomPanel.add(actionButtons, BorderLayout.EAST);
 
-        mainContainer.add(settingsPanel, BorderLayout.NORTH);
+        mainContainer.add(toolbar, BorderLayout.NORTH);
         mainContainer.add(splitPane, BorderLayout.CENTER);
         mainContainer.add(bottomPanel, BorderLayout.SOUTH);
+    }
+
+    private void showSettingsMenu(JButton parent) {
+        JPopupMenu menu = new JPopupMenu();
+        
+        JMenuItem pathsItem = new JMenuItem("📁 Directories...");
+        pathsItem.addActionListener(e -> showPathsDialog());
+        
+        JMenuItem apiItem = new JMenuItem("🔑 AI & API Keys...");
+        apiItem.addActionListener(e -> showApiKeysDialog());
+        
+        JMenuItem bridgeItem = new JMenuItem("🚀 ComfyUI Bridge...");
+        bridgeItem.addActionListener(e -> showInstallationDialog());
+        
+        JMenuItem helpItem = new JMenuItem("ℹ Help...");
+        helpItem.addActionListener(e -> showHelpDialog());
+
+        JMenuItem exitItem = new JMenuItem("❌ Exit Application");
+        exitItem.addActionListener(e -> {
+            downloadManager.stop();
+            System.exit(0);
+        });
+
+        menu.add(pathsItem);
+        menu.add(apiItem);
+        menu.addSeparator();
+        menu.add(bridgeItem);
+        menu.addSeparator();
+        menu.add(helpItem);
+        menu.add(new JSeparator());
+        menu.add(exitItem);
+        
+        menu.show(parent, 0, parent.getHeight());
+    }
+
+    private void showPathsDialog() {
+        JDialog dialog = new JDialog(this, "Directory Settings", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(600, 300);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1.0;
+        gbc.insets = new Insets(0, 0, 5, 0);
+
+        panel.add(new JLabel("ComfyUI Models Path:"), gbc);
+        
+        gbc.gridy++;
+        JPanel row1 = new JPanel(new BorderLayout(5, 0));
+        JTextField field1 = new JTextField(configService.getModelsPath());
+        JButton browse1 = new JButton("Browse...");
+        browse1.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) {
+                field1.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+        row1.add(field1, BorderLayout.CENTER);
+        row1.add(browse1, BorderLayout.EAST);
+        panel.add(row1, gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(10, 0, 5, 0);
+        panel.add(new JLabel("Archive Path:"), gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(0, 0, 5, 0);
+        JPanel row2 = new JPanel(new BorderLayout(5, 0));
+        JTextField field2 = new JTextField(configService.getArchivePath());
+        JButton browse2 = new JButton("Browse...");
+        browse2.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) {
+                field2.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+        row2.add(field2, BorderLayout.CENTER);
+        row2.add(browse2, BorderLayout.EAST);
+        panel.add(row2, gbc);
+
+        gbc.gridy++;
+        gbc.weighty = 1.0;
+        panel.add(new JPanel(), gbc);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton cancel = new JButton("Cancel");
+        cancel.addActionListener(e -> dialog.dispose());
+        JButton save = new JButton("Save");
+        save.addActionListener(e -> {
+            configService.setModelsPath(field1.getText().trim());
+            configService.setArchivePath(field2.getText().trim());
+            statusLabel.setText("Settings updated.");
+            analyzeJsonContent();
+            dialog.dispose();
+        });
+        buttons.add(cancel);
+        buttons.add(save);
+
+        dialog.add(panel, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
+    private void showApiKeysDialog() {
+        JDialog dialog = new JDialog(this, "AI & API Keys", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(600, 320);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel panel = new JPanel(new GridBagLayout());
+        panel.setBorder(BorderFactory.createEmptyBorder(15, 15, 15, 15));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1.0;
+
+        panel.add(new JLabel("Gemini AI API Key:"), gbc);
+        gbc.gridy++;
+        gbc.insets = new Insets(5, 0, 15, 0);
+        JPasswordField geminiField = new JPasswordField(configService.getGeminiApiKey());
+        panel.add(geminiField, gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(0, 0, 0, 0);
+        panel.add(new JLabel("Hugging Face Access Token:"), gbc);
+        gbc.gridy++;
+        gbc.insets = new Insets(5, 0, 5, 0);
+        JPasswordField hfField = new JPasswordField(configService.getHfToken());
+        panel.add(hfField, gbc);
+
+        gbc.gridy++;
+        gbc.weighty = 1.0;
+        panel.add(new JPanel(), gbc);
+
+        JPanel buttons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton cancel = new JButton("Cancel");
+        cancel.addActionListener(e -> dialog.dispose());
+        JButton save = new JButton("Save");
+        save.addActionListener(e -> {
+            configService.setGeminiApiKey(new String(geminiField.getPassword()).trim());
+            configService.setHfToken(new String(hfField.getPassword()).trim());
+            statusLabel.setText("API keys updated.");
+            updateAiModelDisplay();
+            analyzeJsonContent(); // Re-scout with new keys/tokens if needed
+            dialog.dispose();
+        });
+        buttons.add(cancel);
+        buttons.add(save);
+
+        dialog.add(panel, BorderLayout.CENTER);
+        dialog.add(buttons, BorderLayout.SOUTH);
+        dialog.setVisible(true);
     }
 
     private void startDownloadQueue() {
         int rowCount = tableModel.getRowCount();
         if (rowCount == 0) return;
         boolean[] selected = new boolean[rowCount];
+        
         for (int i = 0; i < rowCount; i++) {
             selected[i] = (Boolean) tableModel.getValueAt(i, 0);
             String url = (String) tableModel.getValueAt(i, 6);
             if (url != null && !url.equals("MISSING")) modelsToDownload.get(i).setUrl(url);
         }
+
         downloadButton.setEnabled(false);
-        downloadManager.startQueue(modelsToDownload, selected, modelsPathField.getText(),
-            (idx, status) -> SwingUtilities.invokeLater(() -> tableModel.setValueAt(status, idx, 7)),
-            () -> SwingUtilities.invokeLater(() -> {
-                downloadButton.setEnabled(true);
-                statusLabel.setText("Queue finished.");
-                if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
-            })
-        );
+
+        // Process archive restores FIRST as they are part of the visual queue
+        new Thread(() -> {
+            for (int i = 0; i < rowCount; i++) {
+                if (selected[i]) {
+                    String currentStatus = (String) tableModel.getValueAt(i, 7);
+                    if ("📦 Found in Archive".equals(currentStatus)) {
+                        final int idx = i;
+                        ModelInfo info = modelsToDownload.get(idx);
+                        String folder = info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName());
+                        String normalizedFolder = archiveService.normalizeFolder(folder);
+                        
+                        SwingUtilities.invokeLater(() -> tableModel.setValueAt("📦 Restoring...", idx, 7));
+                        
+                        long totalSize = info.getByteSize();
+                        long[] currentBytes = {0};
+                        long[] lastUpdate = {0};
+
+                        boolean success = archiveService.restoreFromArchiveWithProgress(normalizedFolder, info.getName(), (delta) -> {
+                            currentBytes[0] += delta;
+                            long now = System.currentTimeMillis();
+                            if (totalSize > 0 && (now - lastUpdate[0] > 200)) {
+                                lastUpdate[0] = now;
+                                int percent = (int) Math.min(100, (currentBytes[0] * 100) / totalSize);
+                                SwingUtilities.invokeLater(() -> tableModel.setValueAt("📦 Restoring (" + percent + "%)...", idx, 7));
+                            }
+                        });
+                        
+                        SwingUtilities.invokeLater(() -> {
+                            if (success) {
+                                tableModel.setValueAt("✅ Already exists", idx, 7);
+                                tableModel.setValueAt(false, idx, 0); // Unselect after restoration
+                            } else {
+                                tableModel.setValueAt("❌ Restore Failed - Downloading...", idx, 7);
+                                // Stay selected for download fallback
+                            }
+                        });
+                    }
+                }
+            }
+            
+            // After restores, start the actual download manager for the remaining models
+            SwingUtilities.invokeLater(() -> {
+                // Update selected array (some might have been unselected by restore)
+                for (int i = 0; i < rowCount; i++) {
+                    selected[i] = (Boolean) tableModel.getValueAt(i, 0);
+                }
+
+                downloadManager.startQueue(modelsToDownload, selected, configService.getModelsPath(),
+                    (idx, status) -> SwingUtilities.invokeLater(() -> {
+                        String current = (String) tableModel.getValueAt(idx, 7);
+                        if (status.startsWith("Skipped") && current != null && current.contains("✅")) {
+                            return; // Don't overwrite success with skip
+                        }
+                        tableModel.setValueAt(status, idx, 7);
+                    }),
+                    () -> SwingUtilities.invokeLater(() -> {
+                        downloadButton.setEnabled(true);
+                        statusLabel.setText("Queue finished.");
+                        if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
+                    })
+                );
+            });
+        }).start();
     }
 
     private void showInstallationDialog() {
@@ -522,6 +830,19 @@ public class Main extends JFrame {
 
         // Action buttons
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton syncBtn = new JButton("🔄 Repair / Sync Token");
+        syncBtn.setToolTipText("Only updates the API token in your existing ComfyUI extension.");
+        syncBtn.addActionListener(e -> {
+            String selectedPath = pathField.getText().trim();
+            if (selectedPath.isEmpty()) {
+                JOptionPane.showMessageDialog(dialog, "Please select a path first.");
+                return;
+            }
+            configService.setComfyUIPath(selectedPath);
+            syncBridgeToken();
+            JOptionPane.showMessageDialog(dialog, "API Token synchronized successfully.");
+        });
+        
         JButton cancelBtn = new JButton("Cancel");
         cancelBtn.addActionListener(e -> dialog.dispose());
         JButton installBtn = new JButton("🚀 Start Installation");
@@ -533,6 +854,8 @@ public class Main extends JFrame {
             }
             installComfyUIBridge(selectedPath, dialog);
         });
+        buttonPanel.add(syncBtn);
+        buttonPanel.add(new JSeparator(JSeparator.VERTICAL));
         buttonPanel.add(cancelBtn);
         buttonPanel.add(installBtn);
 
@@ -542,79 +865,71 @@ public class Main extends JFrame {
     }
 
     private void installComfyUIBridge(String comfyPath, JDialog parentDialog) {
-        File inputPath = new File(comfyPath);
-        if (!inputPath.exists()) {
+        Path inputPath = Paths.get(comfyPath);
+        if (!Files.exists(inputPath)) {
             JOptionPane.showMessageDialog(parentDialog, "The provided path does not exist: " + comfyPath, "Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        // Systematically search for custom_nodes
-        File customNodesDir = null;
-        
-        // Candidate 0: Specific Desktop App nested structure (High Priority)
-        File c0 = new File(inputPath, "resources" + File.separator + "ComfyUI" + File.separator + "custom_nodes");
-        // Candidate 1: inputPath/custom_nodes (Standard)
-        File c1 = new File(inputPath, "custom_nodes");
-        // Candidate 2: inputPath/ComfyUI/custom_nodes (Portable Root)
-        File c2 = new File(inputPath, "ComfyUI" + File.separator + "custom_nodes");
-        // Candidate 3: inputPath itself (User selected custom_nodes directly)
-        File c3 = inputPath;
-
-        if (c0.exists() && c0.isDirectory()) customNodesDir = c0;
-        else if (c1.exists() && c1.isDirectory()) customNodesDir = c1;
-        else if (c2.exists() && c2.isDirectory()) customNodesDir = c2;
-        else if (c3.getName().equalsIgnoreCase("custom_nodes") && c3.isDirectory()) customNodesDir = c3;
-        
-        // --- IMPROVEMENT: DEEP SEARCH (if candidates fail) ---
-        if (customNodesDir == null) {
-            System.out.println("Standard candidates failed. Starting deep search in: " + inputPath.getAbsolutePath());
-            customNodesDir = findCustomNodesDeep(inputPath, 0);
-        }
+        // Systematically search for custom_nodes using PathResolver
+        Path customNodesDir = pathResolver.findCustomNodes(inputPath);
 
         if (customNodesDir == null) {
             String msg = "Could not find 'custom_nodes' folder in the selected directory.\n\n" +
-                         "Checked locations (among others):\n" +
-                         "- " + c0.getAbsolutePath() + "\n" +
-                         "- " + c1.getAbsolutePath() + "\n" +
-                         "- " + c2.getAbsolutePath() + "\n\n" +
                          "Please ensure you select the folder that contains 'custom_nodes' or the main ComfyUI folder.";
             JOptionPane.showMessageDialog(parentDialog, msg, "Installation Error", JOptionPane.ERROR_MESSAGE);
             return;
         }
 
-        // --- IMPROVEMENT 1: CLEANUP LEGACY/CONFLICTING FILES ---
+        // --- IMPROVEMENT: THOROUGH CLEANUP ---
+        // 1. Delete legacy single-file scripts that might conflict
         String[] conflictingFiles = {"comfyui_to_downloader.py", "comfyui-model-downloader.py"};
         for (String conflict : conflictingFiles) {
-            File conflictFile = new File(customNodesDir, conflict);
-            if (conflictFile.exists()) {
-                System.out.println("Cleaning up legacy file: " + conflictFile.getAbsolutePath());
-                conflictFile.delete();
+            Path conflictFile = customNodesDir.resolve(conflict);
+            try {
+                if (Files.exists(conflictFile)) {
+                    Files.delete(conflictFile);
+                    System.out.println("Cleaned up legacy script: " + conflictFile);
+                }
+            } catch (IOException ignored) {}
+        }
+
+        // 2. Search for and remove ANY folder named 'comfyui-model-downloader' to ensure a clean slate
+        try (java.util.stream.Stream<Path> walk = Files.walk(customNodesDir, 2)) {
+            List<Path> oldDirs = walk
+                .filter(p -> Files.isDirectory(p) && p.getFileName().toString().equalsIgnoreCase("comfyui-model-downloader"))
+                .collect(Collectors.toList());
+            
+            for (Path oldDir : oldDirs) {
+                System.out.println("Removing existing bridge directory: " + oldDir);
+                deleteDirectory(oldDir.toFile());
             }
+        } catch (IOException e) {
+            System.err.println("Error during bridge cleanup: " + e.getMessage());
         }
 
         configService.setComfyUIPath(comfyPath);
         
-        File targetDir = new File(customNodesDir, "comfyui-model-downloader");
+        Path targetDir = customNodesDir.resolve("comfyui-model-downloader");
         
         try {
-            // Cleanup old directory
-            if (targetDir.exists()) {
-                deleteDirectory(targetDir);
-            }
-            targetDir.mkdirs();
+            Files.createDirectories(targetDir);
 
             // Extract from resources
-            extractResource("/comfyui-bridge/__init__.py", new File(targetDir, "__init__.py"));
-            File webDir = new File(targetDir, "web");
-            webDir.mkdirs();
-            extractResource("/comfyui-bridge/web/downloader.js", new File(webDir, "downloader.js"));
+            extractResource("/comfyui-bridge/__init__.py", targetDir.resolve("__init__.py").toFile());
+            Path webDir = targetDir.resolve("web");
+            Files.createDirectories(webDir);
+            extractResource("/comfyui-bridge/web/downloader.js", webDir.resolve("downloader.js").toFile());
 
-            writeExtensionConfig(targetDir);
+            // Force immediate config write with current token
+            writeExtensionConfig(targetDir.toFile());
             
-            if (new File(targetDir, "__init__.py").exists()) {
+            if (Files.exists(targetDir.resolve("__init__.py"))) {
                 String msg = "🚀 ComfyUI Bridge installed successfully!\n\n" +
-                             "Location: " + targetDir.getAbsolutePath() + "\n\n" +
-                             "Please RESTART ComfyUI now to see the rocket icon.";
+                             "Location: " + targetDir.toAbsolutePath() + "\n\n" +
+                             "Important:\n" +
+                             "1. If ComfyUI is running, you MUST RESTART it.\n" +
+                             "2. Check if a 'rocket' icon appears in the ComfyUI menu.";
                 JOptionPane.showMessageDialog(parentDialog, msg, "Success", JOptionPane.INFORMATION_MESSAGE);
                 parentDialog.dispose();
             } else {
@@ -660,22 +975,19 @@ public class Main extends JFrame {
             if (!webDir.exists()) webDir.mkdirs();
             JSONObject config = new JSONObject();
             config.put("token", configService.getApiToken());
-            Files.writeString(new File(webDir, "config.json").toPath(), config.toString(4));
-        } catch (Exception e) { e.printStackTrace(); }
+            Path configFile = new File(webDir, "config.json").toPath();
+            Files.writeString(configFile, config.toString(4));
+            System.out.println("[Bridge-Sync] Successfully wrote config to: " + configFile.toAbsolutePath());
+        } catch (Exception e) { 
+            System.err.println("[Bridge-Sync] Failed to write config: " + e.getMessage());
+            e.printStackTrace(); 
+        }
     }
 
     private void deleteDirectory(File dir) {
         File[] files = dir.listFiles();
         if (files != null) for (File f : files) deleteDirectory(f);
         dir.delete();
-    }
-
-    private void copyDirectory(File s, File d) throws IOException {
-        if (s.isDirectory()) {
-            if (!d.exists()) d.mkdirs();
-            String[] children = s.list();
-            if (children != null) for (String c : children) copyDirectory(new File(s, c), new File(d, c));
-        } else Files.copy(s.toPath(), d.toPath(), StandardCopyOption.REPLACE_EXISTING);
     }
 
     private void loadFile(File file) {
@@ -691,24 +1003,120 @@ public class Main extends JFrame {
         if (text == null || text.isEmpty()) return;
         modelsToDownload = analyzer.analyze(text, currentFileName);
         tableModel.setRowCount(0);
-        String base = modelsPathField.getText();
+        String base = configService.getModelsPath();
+        String archive = configService.getArchivePath();
+        
         for (int i = 0; i < modelsToDownload.size(); i++) {
             ModelInfo info = modelsToDownload.get(i);
-            String type = info.getType() != null ? info.getType() : "checkpoints";
-            Path local = Paths.get(base, info.getSave_path() != null ? info.getSave_path() : type, info.getName());
-            boolean exists = Files.exists(local);
+            String type = info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName();
+            String folder = info.getSave_path() != null ? info.getSave_path() : type;
             
-            // Populate size from local file if it exists and currently unknown
-            if (exists && "Unknown".equals(info.getSize())) {
+            String normalizedFolder = archiveService.normalizeFolder(folder);
+
+            Path local = "root".equals(normalizedFolder) ? Paths.get(base, info.getName()) : Paths.get(base, normalizedFolder, info.getName());
+            Path archivedPath = "root".equals(normalizedFolder) ? Paths.get(archive, info.getName()) : Paths.get(archive, normalizedFolder, info.getName());
+            
+            boolean exists = Files.exists(local) && Files.isRegularFile(local);
+            boolean inArchive = Files.exists(archivedPath) && Files.isRegularFile(archivedPath);
+            boolean sizeMismatch = false;
+
+            // Initial size check for primary location
+            if (exists && info.getByteSize() > 0) {
                 try {
-                    long bytes = Files.size(local);
-                    info.setSize(searchService.formatSize(bytes));
+                    if (Files.size(local) != info.getByteSize()) {
+                        sizeMismatch = true;
+                        exists = false;
+                    }
+                } catch (IOException e) { exists = false; }
+            }
+            
+            // Fallback: Recursive search in ARCHIVE if not found at primary location
+            if (!inArchive && archive != null && !archive.isEmpty()) {
+                java.util.Optional<Path> foundInArchive = localScanner.findModelWithPrefSize(Paths.get(archive), info.getName(), info.getByteSize());
+                if (foundInArchive.isPresent()) {
+                    archivedPath = foundInArchive.get();
+                    inArchive = true;
+                }
+            }
+
+            // Fallback: Recursive search in LOCAL MODELS if not found OR size mismatch at primary location
+            if ((!exists || sizeMismatch) && base != null && !base.isEmpty()) {
+                java.util.Optional<Path> foundLocally = localScanner.findModelWithPrefSize(Paths.get(base), info.getName(), info.getByteSize());
+                if (foundLocally.isPresent()) {
+                    Path potentialLocal = foundLocally.get();
+                    try {
+                        long potSize = Files.size(potentialLocal);
+                        // Only accept if size matches OR we don't know the remote size yet
+                        if (info.getByteSize() <= 0 || potSize == info.getByteSize()) {
+                            local = potentialLocal;
+                            exists = true;
+                            sizeMismatch = false; // Found a correct one!
+                            
+                            // Update normalizedFolder to the actual location found locally
+                            Path root = Paths.get(base);
+                            Path rel = root.relativize(local);
+                            if (rel.getParent() != null) {
+                                normalizedFolder = rel.getParent().toString().replace("\\", "/");
+                            } else {
+                                normalizedFolder = "root";
+                            }
+                            info.setSave_path(normalizedFolder);
+                        }
+                    } catch (Exception ignored) {}
+                }
+            }
+
+            // Safety check: if it exists at 'local' but 'local' is inside the archive folder, it's NOT locally existing in the right place
+            if (exists && archive != null && !archive.isEmpty() && 
+                local.toAbsolutePath().toString().toLowerCase().startsWith(new File(archive).getAbsolutePath().toLowerCase())) {
+                exists = false;
+                inArchive = true;
+            }
+            
+            // Rigorous 'Already exists' check: must match byteSize if known (redundant but safe)
+            if (exists && info.getByteSize() > 0) {
+                try {
+                    long localSize = Files.size(local);
+                    if (localSize != info.getByteSize()) {
+                        sizeMismatch = true;
+                        exists = false;
+                    }
+                } catch (IOException e) {
+                    exists = false;
+                }
+            }
+
+            // Populate size from local or archive if it exists and currently unknown
+            if ((exists || inArchive || sizeMismatch) && ("Unknown".equals(info.getSize()) || info.getByteSize() <= 0)) {
+                try {
+                    long bytes = Files.size(exists ? local : (sizeMismatch ? local : archivedPath));
+                    if (bytes > 0) {
+                        if (info.getByteSize() <= 0) info.setByteSize(bytes);
+                        if ("Unknown".equals(info.getSize())) info.setSize(searchService.formatSize(bytes));
+                    }
                 } catch (Exception e) {}
             }
 
-            String status = exists ? "✅ Already exists" : (info.getUrl().equals("MISSING") ? "Idle" : "✅ Known Good");
-            tableModel.addRow(new Object[]{!exists, info.getType(), info.getName(), info.getSize(), info.getPopularity(), "models/" + type, info.getUrl(), status});
+            String status;
+            if (exists && inArchive) {
+                status = "✅ Already exists (Archived copy found)";
+            } else if (exists) {
+                status = "✅ Already exists";
+            } else if (inArchive) {
+                status = "📦 Found in Archive";
+            } else if (sizeMismatch) {
+                status = "🔄 Size Mismatch";
+            } else if (info.getUrl().equals("MISSING")) {
+                status = "Idle";
+            } else {
+                status = "✅ Known Good";
+            }
+            
+            // Select for download/restore if NOT exists locally
+            boolean isSelected = !exists;
+            tableModel.addRow(new Object[]{isSelected, info.getType(), info.getName(), info.getSize(), info.getPopularity(), "models/" + normalizedFolder, info.getUrl(), status});
         }
+        
         downloadButton.setEnabled(!modelsToDownload.isEmpty());
         
         // NEW: Automatically fetch missing sizes for remote models in background
@@ -721,14 +1129,85 @@ public class Main extends JFrame {
             for (int i = 0; i < modelsToDownload.size(); i++) {
                 final int idx = i;
                 ModelInfo info = modelsToDownload.get(idx);
-                if (!info.getUrl().equals("MISSING") && "Unknown".equals(info.getSize())) {
+                
+                String status = (idx < tableModel.getRowCount()) ? (String) tableModel.getValueAt(idx, 7) : "";
+                boolean needsCheck = "Unknown".equals(info.getSize()) || "🔄 Size Mismatch".equals(status);
+
+                if (!info.getUrl().equals("MISSING") && needsCheck) {
                     long size = searchService.getRemoteSize(info.getUrl());
                     if (size > 0) {
+                        info.setByteSize(size);
                         String formatted = searchService.formatSize(size);
                         info.setSize(formatted);
                         SwingUtilities.invokeLater(() -> {
                             if (idx < tableModel.getRowCount()) {
                                 tableModel.setValueAt(formatted, idx, 3);
+                                
+                                // Re-verify status with new remote size info
+                                String currentStatus = (String) tableModel.getValueAt(idx, 7);
+                                if (currentStatus.contains("Already exists") || "🔄 Size Mismatch".equals(currentStatus) || "📦 Found in Archive".equals(currentStatus)) {
+                                    String type = info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName();
+                                    String folder = info.getSave_path() != null ? info.getSave_path() : type;
+                                    String base = configService.getModelsPath();
+                                    String archive = configService.getArchivePath();
+                                    
+                                    // 1. Re-check local
+                                    Path local = Paths.get(base, archiveService.normalizeFolder(folder), info.getName());
+                                    if (!Files.exists(local)) {
+                                        local = Paths.get(base, type, info.getName());
+                                    }
+                                    
+                                    // If still not found at "standard" locations, try recursive local
+                                    if (!Files.exists(local)) {
+                                        java.util.Optional<Path> recursiveLocal = localScanner.findModelWithPrefSize(Paths.get(base), info.getName(), size);
+                                        if (recursiveLocal.isPresent()) local = recursiveLocal.get();
+                                    }
+
+                                    boolean localExists = Files.exists(local);
+                                    boolean localSizeMatch = false;
+                                    if (localExists) {
+                                        try {
+                                            localSizeMatch = (Files.size(local) == size);
+                                        } catch (IOException ignored) {}
+                                    }
+
+                                    // 2. Re-check archive
+                                    boolean inArchive = false;
+                                    if (archive != null && !archive.isEmpty()) {
+                                        Path archived = Paths.get(archive, archiveService.normalizeFolder(folder), info.getName());
+                                        try {
+                                            if (Files.exists(archived) && Files.size(archived) == size) {
+                                                inArchive = true;
+                                            } else {
+                                                inArchive = localScanner.findModelWithPrefSize(Paths.get(archive), info.getName(), size).isPresent();
+                                            }
+                                        } catch (IOException ignored) {}
+                                    }
+
+                                    String newStatus;
+                                    boolean shouldSelect = false;
+
+                                    if (localSizeMatch) {
+                                        newStatus = inArchive ? "✅ Already exists (Archived copy found)" : "✅ Already exists";
+                                        shouldSelect = false;
+                                    } else if (localExists) {
+                                        newStatus = "🔄 Size Mismatch";
+                                        shouldSelect = true;
+                                    } else if (inArchive) {
+                                        newStatus = "📦 Found in Archive";
+                                        shouldSelect = true;
+                                    } else {
+                                        newStatus = "✅ Known Good";
+                                        shouldSelect = true;
+                                    }
+
+                                    final String finalStatus = newStatus;
+                                    final boolean finalSelect = shouldSelect;
+                                    SwingUtilities.invokeLater(() -> {
+                                        tableModel.setValueAt(finalStatus, idx, 7);
+                                        tableModel.setValueAt(finalSelect, idx, 0);
+                                    });
+                                }
                             }
                         });
                     }
@@ -743,18 +1222,62 @@ public class Main extends JFrame {
         boolean[] selected = new boolean[tableModel.getRowCount()];
         for (int i = 0; i < selected.length; i++) selected[i] = (Boolean) tableModel.getValueAt(i, 0);
         searchService.searchOnline(modelsToDownload, selected, jsonInputArea.getText(), currentFileName,
-            (idx, status) -> SwingUtilities.invokeLater(() -> tableModel.setValueAt(status, idx, 7)),
+            (idx, status) -> SwingUtilities.invokeLater(() -> {
+                String current = (String) tableModel.getValueAt(idx, 7);
+                // Protection: Don't overwrite successful detection (local or archive) with search progress/failure
+                if (current != null && (current.contains("✅") || current.contains("📦"))) {
+                    if (status.contains("No trusted match") || status.startsWith("🔍") || status.startsWith("✨")) {
+                        return; 
+                    }
+                }
+                tableModel.setValueAt(status, idx, 7);
+            }),
             (idx, info) -> SwingUtilities.invokeLater(() -> {
                 tableModel.setValueAt(info.getSize(), idx, 3);
                 tableModel.setValueAt(info.getUrl(), idx, 6);
-                tableModel.setValueAt("✅ Found", idx, 7);
+                
+                String base = configService.getModelsPath();
+                String archive = configService.getArchivePath();
+                long size = info.getByteSize();
+
+                // Re-verify local existence with potential new size info
+                boolean exists = false;
+                boolean inArchive = false;
+                
+                if (base != null && !base.isEmpty()) {
+                    java.util.Optional<Path> foundLocally = localScanner.findModelWithPrefSize(Paths.get(base), info.getName(), size);
+                    if (foundLocally.isPresent()) {
+                        exists = true;
+                        // Update target path display
+                        try {
+                            Path rel = Paths.get(base).relativize(foundLocally.get());
+                            tableModel.setValueAt("models/" + rel.getParent().toString().replace("\\", "/"), idx, 5);
+                        } catch (Exception ignored) {}
+                    }
+                }
+
+                if (!exists && archive != null && !archive.isEmpty()) {
+                    inArchive = localScanner.findModelWithPrefSize(Paths.get(archive), info.getName(), size).isPresent();
+                }
+
+                String newStatus;
+                if (exists) {
+                    newStatus = "✅ Already exists";
+                } else if (inArchive) {
+                    newStatus = "📦 Found in Archive";
+                } else {
+                    newStatus = "✅ Known Good";
+                }
+
+                tableModel.setValueAt(newStatus, idx, 7);
+                tableModel.setValueAt(!exists, idx, 0); // Keep selected for download/restore if NOT local
             }),
             () -> SwingUtilities.invokeLater(() -> statusLabel.setText("Search finished."))
         );
     }
 
     private void verifyLocalModels(boolean checkDuplicates) {
-        String baseDir = modelsPathField.getText();
+        String baseDir = configService.getModelsPath();
         if (baseDir == null || baseDir.isEmpty()) {
             JOptionPane.showMessageDialog(this, "Please set a models directory first.");
             return;
@@ -876,6 +1399,224 @@ public class Main extends JFrame {
         JOptionPane.showMessageDialog(this, scrollPane, "Duplicates Found", JOptionPane.INFORMATION_MESSAGE);
     }
 
+    private void showArchiveDialog() {
+        JDialog dialog = new JDialog(this, "Archive Manager", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(1000, 700);
+        dialog.setLocationRelativeTo(this);
+
+        JTabbedPane tabs = new JTabbedPane();
+        
+        // --- TAB 1: ARCHIVE (Models -> Archive) ---
+        JPanel archivePanel = new JPanel(new BorderLayout(10, 10));
+        archivePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        
+        Map<String, List<ModelInfo>> groupedToArchive = archiveService.getModelsGroupedByFolder();
+        String[] columns = {"Select", "Folder", "Name", "Size"};
+        DefaultTableModel archiveTableModel = new DefaultTableModel(columns, 0) {
+            @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
+            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
+        };
+
+        for (Map.Entry<String, List<ModelInfo>> entry : groupedToArchive.entrySet()) {
+            for (ModelInfo model : entry.getValue()) {
+                archiveTableModel.addRow(new Object[]{false, entry.getKey(), model.getName(), model.getSize()});
+            }
+        }
+
+        JTable archiveTable = new JTable(archiveTableModel);
+        archiveTable.setRowHeight(25);
+        archiveTable.getColumnModel().getColumn(0).setMaxWidth(50);
+        JScrollPane archiveScroll = new JScrollPane(archiveTable);
+        archivePanel.add(archiveScroll, BorderLayout.CENTER);
+
+        JPanel archiveBottom = new JPanel(new BorderLayout());
+        JLabel archiveCountLabel = new JLabel("Selected: 0 models");
+        archiveTableModel.addTableModelListener(e -> {
+            int selected = 0;
+            for (int i = 0; i < archiveTableModel.getRowCount(); i++) {
+                if ((Boolean) archiveTableModel.getValueAt(i, 0)) selected++;
+            }
+            archiveCountLabel.setText("Selected: " + selected + " models");
+        });
+        
+        JButton archiveNowBtn = new JButton("📦 Move to Archive");
+        archiveNowBtn.addActionListener(e -> {
+            List<Integer> selectedRows = new ArrayList<>();
+            for (int i = 0; i < archiveTableModel.getRowCount(); i++) if ((Boolean) archiveTableModel.getValueAt(i, 0)) selectedRows.add(i);
+            if (selectedRows.isEmpty()) return;
+            
+            showModalProgressDialog("Archive", "Archiving", selectedRows, archiveTableModel, (folder, name, update) -> {
+                try {
+                    archiveService.moveToArchiveWithProgress(folder, name, update);
+                    return true;
+                } catch (IOException ex) {
+                    ex.printStackTrace();
+                    return false;
+                }
+            });
+        });
+
+        JPanel archiveActionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        archiveActionPanel.add(archiveNowBtn);
+        archiveBottom.add(archiveCountLabel, BorderLayout.WEST);
+        archiveBottom.add(archiveActionPanel, BorderLayout.EAST);
+        archivePanel.add(archiveBottom, BorderLayout.SOUTH);
+
+        // --- TAB 2: RESTORE (Archive -> Models) ---
+        JPanel restorePanel = new JPanel(new BorderLayout(10, 10));
+        restorePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+        
+        Map<String, List<ModelInfo>> groupedToRestore = archiveService.getArchivedModelsGroupedByFolder();
+        DefaultTableModel restoreTableModel = new DefaultTableModel(columns, 0) {
+            @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
+            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
+        };
+
+        for (Map.Entry<String, List<ModelInfo>> entry : groupedToRestore.entrySet()) {
+            for (ModelInfo model : entry.getValue()) {
+                restoreTableModel.addRow(new Object[]{false, entry.getKey(), model.getName(), model.getSize()});
+            }
+        }
+
+        JTable restoreTable = new JTable(restoreTableModel);
+        restoreTable.setRowHeight(25);
+        restoreTable.getColumnModel().getColumn(0).setMaxWidth(50);
+        JScrollPane restoreScroll = new JScrollPane(restoreTable);
+        restorePanel.add(restoreScroll, BorderLayout.CENTER);
+
+        JPanel restoreBottom = new JPanel(new BorderLayout());
+        JLabel restoreCountLabel = new JLabel("Selected: 0 models");
+        restoreTableModel.addTableModelListener(e -> {
+            int selected = 0;
+            for (int i = 0; i < restoreTableModel.getRowCount(); i++) {
+                if ((Boolean) restoreTableModel.getValueAt(i, 0)) selected++;
+            }
+            restoreCountLabel.setText("Selected: " + selected + " models");
+        });
+
+        JButton restoreNowBtn = new JButton("🚀 Restore from Archive");
+        restoreNowBtn.addActionListener(e -> {
+            List<Integer> selectedRows = new ArrayList<>();
+            for (int i = 0; i < restoreTableModel.getRowCount(); i++) if ((Boolean) restoreTableModel.getValueAt(i, 0)) selectedRows.add(i);
+            if (selectedRows.isEmpty()) return;
+            
+            showModalProgressDialog("Restore", "Restoring", selectedRows, restoreTableModel, (folder, name, update) -> {
+                return archiveService.restoreFromArchiveWithProgress(folder, name, update);
+            });
+        });
+
+        JPanel restoreActionPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        restoreActionPanel.add(restoreNowBtn);
+        restoreBottom.add(restoreCountLabel, BorderLayout.WEST);
+        restoreBottom.add(restoreActionPanel, BorderLayout.EAST);
+        restorePanel.add(restoreBottom, BorderLayout.SOUTH);
+
+        tabs.addTab("📦 Archive Models", archivePanel);
+        tabs.addTab("🚀 Restore Models", restorePanel);
+        
+        dialog.add(tabs, BorderLayout.CENTER);
+        
+        JPanel dialogButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(e -> dialog.dispose());
+        dialogButtons.add(closeBtn);
+        dialog.add(dialogButtons, BorderLayout.SOUTH);
+        
+        dialog.setVisible(true);
+    }
+
+    private void showModalProgressDialog(String title, String statusPrefix, List<Integer> selectedRows, 
+                                        DefaultTableModel tableModel, TaskExecutor executor) {
+        JDialog progressDialog = new JDialog(this, title, true);
+        progressDialog.setLayout(new BorderLayout(10, 10));
+        progressDialog.setSize(500, 180);
+        progressDialog.setLocationRelativeTo(this);
+        progressDialog.setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
+
+        JPanel panel = new JPanel(new BorderLayout(10, 10));
+        panel.setBorder(BorderFactory.createEmptyBorder(20, 20, 20, 20));
+
+        JLabel label = new JLabel(statusPrefix + "...");
+        label.setFont(new Font("SansSerif", Font.BOLD, 12));
+        JProgressBar progressBar = new JProgressBar(0, 100);
+        progressBar.setStringPainted(true);
+        progressBar.setPreferredSize(new Dimension(400, 30));
+
+        panel.add(label, BorderLayout.NORTH);
+        panel.add(progressBar, BorderLayout.CENTER);
+
+        progressDialog.add(panel, BorderLayout.CENTER);
+
+        // Pre-calculate total size for precise percentage
+        long totalBytes = 0;
+        for (int row : selectedRows) {
+            totalBytes += parseSizeToBytes((String) tableModel.getValueAt(row, 3));
+        }
+        final long finalTotalBytes = totalBytes > 0 ? totalBytes : 1; 
+
+        new Thread(() -> {
+            int successCount = 0;
+            List<Integer> processedRows = new ArrayList<>();
+            long[] bytesProcessedTotal = {0};
+
+            for (int i = 0; i < selectedRows.size(); i++) {
+                int row = selectedRows.get(i);
+                String folder = (String) tableModel.getValueAt(row, 1);
+                String name = (String) tableModel.getValueAt(row, 2);
+                
+                final int fileIndex = i + 1;
+                SwingUtilities.invokeLater(() -> {
+                    label.setText(statusPrefix + " (" + fileIndex + "/" + selectedRows.size() + "): " + name);
+                });
+
+                if (executor.execute(folder, name, (bytesDelta) -> {
+                    bytesProcessedTotal[0] += bytesDelta;
+                    final long current = bytesProcessedTotal[0];
+                    final int percent = (int) Math.min(100, (current * 100) / finalTotalBytes);
+                    SwingUtilities.invokeLater(() -> {
+                        progressBar.setValue(percent);
+                        progressBar.setString(percent + "% (" + searchService.formatSize(current) + " / " + searchService.formatSize(finalTotalBytes) + ")");
+                    });
+                })) {
+                    successCount++;
+                    processedRows.add(row);
+                }
+            }
+
+            final int finalSuccess = successCount;
+            SwingUtilities.invokeLater(() -> {
+                progressDialog.dispose();
+                processedRows.sort((a, b) -> b.compareTo(a));
+                for (int r : processedRows) tableModel.removeRow(r);
+                JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
+                    "Operation Complete", JOptionPane.INFORMATION_MESSAGE);
+                analyzeJsonContent();
+            });
+        }).start();
+
+        progressDialog.setVisible(true);
+    }
+
+    private long parseSizeToBytes(String sizeStr) {
+        if (sizeStr == null || sizeStr.equals("Unknown") || sizeStr.isEmpty()) return 0;
+        try {
+            String[] parts = sizeStr.trim().split("\\s+");
+            double val = Double.parseDouble(parts[0].replace(",", "."));
+            if (parts.length < 2) return (long) val;
+            String unit = parts[1].toUpperCase();
+            if (unit.contains("GB")) return (long) (val * 1024 * 1024 * 1024);
+            if (unit.contains("MB")) return (long) (val * 1024 * 1024);
+            if (unit.contains("KB")) return (long) (val * 1024);
+            return (long) val;
+        } catch (Exception e) { return 0; }
+    }
+
+    @FunctionalInterface
+    interface TaskExecutor {
+        boolean execute(String folder, String name, java.util.function.LongConsumer progressUpdate);
+    }
+
     private void updateDownloadManagerSelection() {
         if (downloadManager == null || tableModel == null) return;
         boolean[] selected = new boolean[tableModel.getRowCount()];
@@ -900,11 +1641,96 @@ public class Main extends JFrame {
     }
 
     private void performSystemShutdown() {
-        try { Runtime.getRuntime().exec("shutdown /s /t 60"); } catch (IOException ignored) {}
+        de.tki.comfymodels.util.PlatformUtils.shutdownSystem();
     }
 
     private void showHelpDialog() {
-        JOptionPane.showMessageDialog(this, "ComfyUI Model Downloader\n\n1. Set your Models path\n2. Load or Drag&Drop a Workflow\n3. Click Start Queue", "Help", JOptionPane.INFORMATION_MESSAGE);
+        JDialog helpDialog = new JDialog(this, "User Guide & Documentation", true);
+        helpDialog.setLayout(new BorderLayout());
+        helpDialog.setSize(950, 750);
+        helpDialog.setLocationRelativeTo(this);
+
+        JEditorPane editorPane = new JEditorPane();
+        editorPane.setEditable(false);
+        editorPane.setContentType("text/html");
+        
+        boolean darkMode = configService.isDarkMode();
+        String bgColor = darkMode ? "#161616" : "#f8f9fa";
+        String textColor = darkMode ? "#e6e6e6" : "#212529";
+        String accentColor = darkMode ? "#ffff00" : "#0056b3";
+        String boxBg = darkMode ? "#202020" : "#ffffff";
+        String boxBorder = darkMode ? "#333" : "#dee2e6";
+        String tipBg = darkMode ? "#333" : "#e9ecef";
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("<html><body style='padding: 25px; font-family: sans-serif; background-color: ").append(bgColor).append("; color: ").append(textColor).append(";'>");
+        sb.append("<h1 style='color: ").append(accentColor).append("; text-align: center; margin-bottom: 25px;'>🚀 ComfyUI Model Downloader</h1>");
+        
+        sb.append("<div style='background-color: ").append(boxBg).append("; padding: 15px; border-radius: 8px; margin-bottom: 20px; border: 1px solid ").append(boxBorder).append(";'>");
+        sb.append("<h2 style='color: ").append(accentColor).append("; margin-top: 0;'>🛠️ Getting Started (Setup)</h2>");
+        sb.append("<ol>");
+        sb.append("<li><b>Set Directories:</b> Go to <i>Settings -> Directories</i> and set your ComfyUI 'models' path. " +
+                  "Additionally, choose an 'Archive' path (ideally on a large HDD) to offload models you aren't currently using.</li>");
+        sb.append("<li><b>Unlock Vault:</b> On the first start, you set a master password. This securely encrypts your API keys on your disk.</li>");
+        sb.append("<li><b>Store API Keys:</b> Go to <i>Settings -> AI & API Keys</i>. A <b>Gemini API Key</b> is highly recommended, " +
+                  "as the AI reads workflows like a human and intelligently finds missing download links.</li>");
+        sb.append("<li><b>Install Bridge:</b> Use <i>Settings -> ComfyUI Bridge</i> to add the 🚀 button directly into your ComfyUI interface.</li>");
+        sb.append("</ol></div>");
+
+        sb.append("<h2 style='color: ").append(accentColor).append(";'>✨ Core Features</h2>");
+        
+        sb.append("<p><b>📦 Archive Manager:</b> Models you don't need right now can be moved to the archive via <i>Archive...</i>. " +
+                  "If a workflow needs them later, the Downloader detects them in the archive and offers a <b>one-click restoration</b>.</p>");
+        
+        sb.append("<p><b>👯 Storage Optimizer:</b> Scans your library for duplicates. " +
+                  "Using SHA-256 hash comparison, it identifies identical files even if they have different names.</p>");
+        
+        sb.append("<p><b>🔍 Fast Verify:</b> Quickly checks if your model files are valid or have corrupted headers.</p>");
+
+        sb.append("<p><b>🧠 AI Search:</b> When loading a workflow, the AI automatically tries to identify models. " +
+                  "Use <i>Deep Search</i> to have the AI specifically search for download sources.</p>");
+
+        sb.append("<div style='background-color: ").append(tipBg).append("; padding: 10px; border-radius: 5px; margin-top: 20px;'>");
+        sb.append("<b>💡 Pro Tips:</b><br>");
+        sb.append("• Use <b>Drag & Drop</b> for images (.png) to directly read their embedded workflow.<br>");
+        sb.append("• Enable <b>Shutdown after Queue</b> for overnight downloads.<br>");
+        sb.append("• The app minimizes to the <b>System Tray</b> (bottom right) if 'Stay in Background' is active.");
+        sb.append("</div>");
+        
+        sb.append("<p style='margin-top: 30px; color: #888; font-style: italic; text-align: center;'>Version 1.0.5 - developed by TKI</p>");
+        sb.append("</body></html>");
+
+        editorPane.setText(sb.toString());
+        editorPane.setCaretPosition(0);
+
+        JScrollPane scrollPane = new JScrollPane(editorPane);
+        scrollPane.setBorder(null);
+        helpDialog.add(scrollPane, BorderLayout.CENTER);
+
+        JButton closeBtn = new JButton("Close");
+        closeBtn.addActionListener(e -> helpDialog.dispose());
+        JPanel btnPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        btnPanel.add(closeBtn);
+        helpDialog.add(btnPanel, BorderLayout.SOUTH);
+
+        helpDialog.setVisible(true);
+    }
+
+    private void syncBridgeToken() {
+        String comfyPath = configService.getComfyUIPath();
+        if (comfyPath == null || comfyPath.isEmpty()) return;
+
+        Path comfyDir = Paths.get(comfyPath);
+        if (!Files.exists(comfyDir)) return;
+
+        Path customNodesDir = pathResolver.findCustomNodes(comfyDir);
+        if (customNodesDir == null) return;
+
+        Path targetDir = customNodesDir.resolve("comfyui-model-downloader");
+        if (Files.exists(targetDir) && Files.isDirectory(targetDir)) {
+            writeExtensionConfig(targetDir.toFile());
+            System.out.println("Synchronized API token with ComfyUI bridge at: " + targetDir);
+        }
     }
 
     public static void main(String[] args) {

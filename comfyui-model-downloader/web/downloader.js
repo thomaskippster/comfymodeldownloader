@@ -22,11 +22,11 @@ const tryImports = async () => {
 
 await tryImports();
 
-console.log("%c[Model-Downloader] DEBUG: JS File Loaded", "background: #222; color: #ff69b4; font-size: 20px;");
+console.log("%c[Model-Downloader] DEBUG: JS File Loaded", "background: #222; color: #ffcc00; font-size: 20px;");
 
 // Define setup logic that can be called by extension or as fallback
 const initializeExtension = async () => {
-    console.log("%c[Model-Downloader] DEBUG: Initializing Extension Logic", "background: #222; color: #ff69b4; font-size: 16px;");
+    console.log("%c[Model-Downloader] DEBUG: Initializing Extension Logic", "background: #222; color: #ffcc00; font-size: 16px;");
     
     let apiToken = null;
 
@@ -115,7 +115,7 @@ const initializeExtension = async () => {
         fab.id = "tki-downloader-fab";
         fab.innerHTML = "🚀";
         fab.title = "Send to Model Downloader";
-        fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ff69b4; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(255,105,180,0.5); border: 2px solid white; transition: transform 0.2s;";
+        fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(255,105,180,0.5); border: 2px solid white; transition: transform 0.2s;";
         fab.onmouseover = () => fab.style.transform = "scale(1.1)";
         fab.onmouseout = () => fab.style.transform = "scale(1.0)";
         fab.onclick = sendWorkflow;
@@ -153,7 +153,7 @@ const initializeExtension = async () => {
             const btn = document.createElement("button");
             btn.id = "tki-downloader-classic";
             btn.textContent = "🚀 Downloader";
-            btn.style.background = "#ff69b4";
+            btn.style.background = "#ffcc00";
             btn.style.color = "white";
             btn.onclick = sendWorkflow;
             menu.appendChild(btn);

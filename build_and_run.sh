@@ -8,4 +8,4 @@ fi
 
 echo ""
 echo "=== Starting Application ==="
-java -jar target/ComfyUIModelDownloader.jar "$@"
+java --enable-native-access=ALL-UNNAMED -jar target/ComfyUIModelDownloader.jar "$@"

@@ -7,6 +7,7 @@ public class ModelInfo {
     private String name;
     private String url;
     private String size = "Unknown";
+    private long byteSize = -1;
     private String popularity = ""; // Download-Zahlen zur Sicherheit
     private String base;
     private String save_path;
@@ -30,6 +31,8 @@ public class ModelInfo {
     public void setUrl(String url) { this.url = url; }
     public String getSize() { return size; }
     public void setSize(String size) { this.size = size; }
+    public long getByteSize() { return byteSize; }
+    public void setByteSize(long byteSize) { this.byteSize = byteSize; }
     public String getPopularity() { return popularity; }
     public void setPopularity(String popularity) { this.popularity = popularity; }
 

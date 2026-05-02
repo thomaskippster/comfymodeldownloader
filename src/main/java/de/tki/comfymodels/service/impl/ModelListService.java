@@ -29,6 +29,10 @@ public class ModelListService {
 
     public void importJson(File file) throws Exception {
         String content = Files.readString(file.toPath(), StandardCharsets.UTF_8);
+        importJsonContent(content);
+    }
+
+    public void importJsonContent(String content) throws Exception {
         JSONObject root = new JSONObject(content);
         JSONArray modelsArray = root.getJSONArray("models");
         
@@ -46,12 +50,57 @@ public class ModelListService {
             info.setDescription(m.optString("description", ""));
             info.setReference(m.optString("reference", ""));
             info.setFilename(m.optString("filename", ""));
-            info.setSize(m.optString("size", "Unknown"));
+            String sizeStr = m.optString("size", "Unknown");
+            info.setSize(sizeStr);
+            info.setByteSize(parseSize(sizeStr));
             newModels.add(info);
         }
         
         this.models = newModels;
         saveToStorage();
+    }
+
+    public void importFromUrl(String url) {
+        if (url == null || url.isEmpty()) return;
+        
+        // Ensure we use the raw URL if a GitHub blob URL was provided
+        final String finalUrl = url.contains("github.com") && url.contains("/blob/") ? 
+                               url.replace("github.com", "raw.githubusercontent.com").replace("/blob/", "/") : url;
+
+        new Thread(() -> {
+            try {
+                java.net.http.HttpClient client = java.net.http.HttpClient.newBuilder()
+                        .followRedirects(java.net.http.HttpClient.Redirect.ALWAYS)
+                        .connectTimeout(java.time.Duration.ofSeconds(10))
+                        .build();
+                java.net.http.HttpRequest request = java.net.http.HttpRequest.newBuilder()
+                        .uri(java.net.URI.create(finalUrl))
+                        .build();
+                java.net.http.HttpResponse<String> response = client.send(request, java.net.http.HttpResponse.BodyHandlers.ofString());
+                
+                if (response.statusCode() == 200) {
+                    importJsonContent(response.body());
+                    System.out.println("[Auto-Import] Successfully updated model list (" + models.size() + " models).");
+                }
+            } catch (Exception ignored) {
+                // Silent fail as requested - no stacktrace, no dialog
+                System.out.println("[Auto-Import] Optional model list update skipped (source unreachable or invalid).");
+            }
+        }).start();
+    }
+
+    private long parseSize(String sizeStr) {
+        if (sizeStr == null || sizeStr.isEmpty() || "Unknown".equals(sizeStr)) return -1;
+        try {
+            String clean = sizeStr.toUpperCase().replaceAll("[^0-9\\.]", "");
+            double val = Double.parseDouble(clean);
+            if (sizeStr.toUpperCase().contains("GB")) return (long) (val * 1024L * 1024L * 1024L);
+            if (sizeStr.toUpperCase().contains("MB")) return (long) (val * 1024L * 1024L);
+            if (sizeStr.toUpperCase().contains("KB")) return (long) (val * 1024L);
+            return (long) val;
+        } catch (Exception e) {
+            return -1;
+        }
     }
 
     public Optional<ModelInfo> findByFilename(String filename) {
@@ -99,7 +148,9 @@ public class ModelListService {
                     info.setDescription(m.optString("description"));
                     info.setReference(m.optString("reference"));
                     info.setFilename(m.optString("filename"));
-                    info.setSize(m.optString("size"));
+                    String sizeStr = m.optString("size", "Unknown");
+                    info.setSize(sizeStr);
+                    info.setByteSize(parseSize(sizeStr));
                     models.add(info);
                 }
             }

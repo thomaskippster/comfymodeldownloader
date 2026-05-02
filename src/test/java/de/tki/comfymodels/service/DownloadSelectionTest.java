@@ -4,6 +4,7 @@ import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.DefaultDownloadManager;
 import de.tki.comfymodels.service.impl.EncryptionUtils;
+import de.tki.comfymodels.service.impl.PathResolver;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
 
@@ -25,8 +26,9 @@ public class DownloadSelectionTest {
         DefaultDownloadManager downloadManager = new DefaultDownloadManager();
         
         // Mocking ConfigService to avoid NPE
-        ConfigService configService = new ConfigService(encryptionUtils);
+        ConfigService configService = new ConfigService(encryptionUtils, new PathResolver());
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
+        ReflectionTestUtils.setField(downloadManager, "pathResolver", new PathResolver());
         
         List<ModelInfo> models = new ArrayList<>();
         models.add(new ModelInfo("checkpoints", "model1.safetensors", "http://example.com/1"));
@@ -61,8 +63,9 @@ public class DownloadSelectionTest {
     @Test
     public void testDynamicUncheckWhilePaused() throws InterruptedException {
         DefaultDownloadManager downloadManager = new DefaultDownloadManager();
-        ConfigService configService = new ConfigService(encryptionUtils);
+        ConfigService configService = new ConfigService(encryptionUtils, new PathResolver());
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
+        ReflectionTestUtils.setField(downloadManager, "pathResolver", new PathResolver());
         
         List<ModelInfo> models = new ArrayList<>();
         // Use a dummy model

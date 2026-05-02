@@ -3,6 +3,7 @@ package de.tki.comfymodels.service;
 import com.sun.net.httpserver.HttpServer;
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.*;
+import de.tki.comfymodels.service.impl.PathResolver;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -36,8 +37,9 @@ public class StatusTransitionTest {
     public void setup() throws Exception {
         tempDir = Files.createTempDirectory("transition_test");
         downloadManager = new DefaultDownloadManager();
-        configService = new ConfigService(encryptionUtils);
+        configService = new ConfigService(encryptionUtils, new PathResolver());
         ReflectionTestUtils.setField(downloadManager, "configService", configService);
+        ReflectionTestUtils.setField(downloadManager, "pathResolver", new PathResolver());
 
         // Setup Local Test Server
         server = HttpServer.create(new InetSocketAddress(0), 0);
@@ -94,7 +96,7 @@ public class StatusTransitionTest {
     @Test
     public void testTransition_Idle_To_Searching_To_NotFound() throws InterruptedException {
         ModelSearchService searchService = new ModelSearchService();
-        ConfigService cfg = new ConfigService(encryptionUtils);
+        ConfigService cfg = new ConfigService(encryptionUtils, new PathResolver());
         GeminiAIService gemini = new GeminiAIService();
         ModelListService list = new ModelListService();
         

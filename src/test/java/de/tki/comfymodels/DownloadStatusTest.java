@@ -38,11 +38,15 @@ public class DownloadStatusTest {
         
         // Use real ConfigService and EncryptionUtils
         EncryptionUtils encryptionUtils = new EncryptionUtils();
-        ConfigService configService = new ConfigService(encryptionUtils);
+        ConfigService configService = new ConfigService(encryptionUtils, new de.tki.comfymodels.service.impl.PathResolver());
         
         Field field = DefaultDownloadManager.class.getDeclaredField("configService");
         field.setAccessible(true);
         field.set(downloadManager, configService);
+
+        Field pathField = DefaultDownloadManager.class.getDeclaredField("pathResolver");
+        pathField.setAccessible(true);
+        pathField.set(downloadManager, new de.tki.comfymodels.service.impl.PathResolver());
 
         // Setup Local Test Server
         server = HttpServer.create(new InetSocketAddress(0), 0);

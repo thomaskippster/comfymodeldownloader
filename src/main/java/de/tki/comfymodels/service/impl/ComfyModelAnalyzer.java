@@ -26,7 +26,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
     private final Pattern FILE_PATTERN = Pattern.compile("([a-zA-Z0-9_\\-\\.\\/]+\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))", Pattern.CASE_INSENSITIVE);
     private final Pattern COMP_VAE_PATTERN = Pattern.compile("(vae|tokenizer|autoencoder|encoder|decoder)", Pattern.CASE_INSENSITIVE);
     private final Pattern COMP_CLIP_PATTERN = Pattern.compile("(clip|text.encoder|t5|llama|gemma|mistral|qwen|bert|vit|embed)", Pattern.CASE_INSENSITIVE);
-    private final Pattern COMP_UNET_PATTERN = Pattern.compile("(unet|diffusion|transformer|dit|model|base|upscale|esrgan|resnet|sampling)", Pattern.CASE_INSENSITIVE);
+    private final Pattern COMP_UNET_PATTERN = Pattern.compile("(unet|diffusion|transformer|dit|model|upscale|esrgan|resnet|sampling)", Pattern.CASE_INSENSITIVE);
     private final Pattern MD_LINK_PATTERN = Pattern.compile("\\[([^\\]]+)\\]\\((https?://[^\\)]+)\\)", Pattern.CASE_INSENSITIVE);
     private final Pattern NAKED_URL_PATTERN = Pattern.compile("(https?://[a-zA-Z0-9\\-\\._\\/\\?\\=\\&\\%]+(?:\\.(?:safetensors|sft|ckpt|pth|pt|bin|onnx|yaml))(?:\\?[^\\s\\\"\\']*)?)", Pattern.CASE_INSENSITIVE);
 
@@ -55,11 +55,24 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     info.setUrl(match.getUrl());
                     info.setSave_path(match.getSave_path());
                     info.setSize(match.getSize());
+                    info.setByteSize(match.getByteSize());
                     info.setPopularity("📂 MODEL LIST MATCH");
+
                 } else {
-                    if (aiService != null) {
+                    String popularity = null;
+                    if (geminiService != null) {
+                        try {
+                            popularity = geminiService.analyzeModel(info.getName());
+                        } catch (Exception ignored) {}
+                    }
+
+                    if (popularity == null && aiService != null) {
                         LocalAIService.Prediction prediction = aiService.predictProvider(info.getName());
-                        info.setPopularity(prediction.getLabel());
+                        popularity = prediction.getLabel();
+                    }
+                    
+                    if (popularity != null) {
+                        info.setPopularity(popularity);
                     }
                     
                     if (globalContext != null && !globalContext.isEmpty() && info.getPopularity() != null && info.getPopularity().contains("Community")) {
@@ -126,7 +139,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     if (m != null) {
                         String n = m.optString("name", m.optString("filename"));
                         if (n != null && !n.isEmpty()) {
-                            String rawPath = m.optString("directory", m.optString("type", "checkpoints"));
+                            String rawPath = m.optString("directory", m.optString("type", de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName()));
                             ModelInfo info = new ModelInfo(rawPath, n, m.optString("url", "MISSING"));
                             info.setSave_path(rawPath);
                             addModelInfo(res, info);
@@ -180,7 +193,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             String url = fixUrl(mdMatcher.group(2));
             if (name.contains(".")) {
                 String type = hint != null ? inferTypeFromKey(hint) : null;
-                if ((type == null || type.equals("checkpoints")) && url.contains("/resolve/main/")) {
+                if ((type == null || type.equals(de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName())) && url.contains("/resolve/main/")) {
                     String sub = url.substring(url.indexOf("/resolve/main/") + 14);
                     if (sub.contains("/")) {
                         String folder = sub.substring(0, sub.indexOf("/")).toLowerCase();
@@ -190,7 +203,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                     }
                 }
                 if (type == null) type = ctx;
-                addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", name, url));
+                addModelInfo(res, new ModelInfo(type != null ? type : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName(), name, url));
             }
         }
 
@@ -204,7 +217,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
             if (name.length() > 3) {
                 String type = hint != null ? inferTypeFromKey(hint) : null;
                 if (type == null) type = ctx;
-                addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", name, url));
+                addModelInfo(res, new ModelInfo(type != null ? type : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName(), name, url));
             }
         }
 
@@ -225,63 +238,65 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                 if (type == null) type = ctx;
                 
                 // Generic refinement based on structural keywords
-                if (COMP_VAE_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "vae";
-                else if (COMP_CLIP_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints"))) type = "clip";
-                else if (COMP_UNET_PATTERN.matcher(fLow).find() && (type == null || type.equals("checkpoints") || (type.equals("clip") && !fLow.contains("clip_l") && !fLow.contains("clip_g")))) type = "unet";
+                if (COMP_VAE_PATTERN.matcher(fLow).find() && (type == null || type.equals(de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName()))) type = "vae";
+                else if (COMP_CLIP_PATTERN.matcher(fLow).find() && (type == null || type.equals(de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName()))) type = "clip";
+                else if (COMP_UNET_PATTERN.matcher(fLow).find() && (type == null || type.equals(de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName()) || (type.equals("clip") && !fLow.contains("clip_l") && !fLow.contains("clip_g")))) type = "unet";
                 
-                addModelInfo(res, new ModelInfo(type != null ? type : "checkpoints", f, "MISSING"));
+                addModelInfo(res, new ModelInfo(type != null ? type : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName(), f, "MISSING"));
             }
         }
     }
 
     private String inferTypeFromNode(String nt) {
         nt = nt.toLowerCase();
-        if (nt.contains("lora")) return "loras";
-        if (nt.contains("vae")) return "vae";
-        if (nt.contains("controlnet") || nt.contains("t2i_adapter")) return "controlnet";
-        if (nt.contains("upscale") || nt.contains("esrgan")) return "upscale_models";
-        if (nt.contains("latent_upscale")) return "latent_upscale_models";
-        if (nt.contains("clip_vision") || nt.contains("clipvision")) return "clip_vision";
-        if (nt.contains("clip") || nt.contains("text_encoder") || nt.contains("tokenizer")) return "clip";
-        if (nt.contains("diffusion_model")) return "diffusion_models";
-        if (nt.contains("unet") || nt.contains("diffusion")) return "unet";
-        if (nt.contains("gligen")) return "gligen";
-        if (nt.contains("embeddings") || nt.contains("textual_inversion")) return "embeddings";
-        if (nt.contains("hypernetwork")) return "hypernetworks";
-        if (nt.contains("photomaker")) return "photomaker";
-        if (nt.contains("style_model")) return "style_models";
-        if (nt.contains("audio") && nt.contains("encoder")) return "audio_encoders";
-        if (nt.contains("diffusers")) return "diffusers";
-        if (nt.contains("configs")) return "configs";
-        if (nt.contains("model_patch")) return "model_patches";
+        if (nt.contains("checkpoint")) return de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName();
+        if (nt.contains("lora")) return de.tki.comfymodels.domain.ModelFolder.LORAS.getDefaultFolderName();
+        if (nt.contains("vae")) return de.tki.comfymodels.domain.ModelFolder.VAE.getDefaultFolderName();
+        if (nt.contains("controlnet") || nt.contains("t2i_adapter")) return de.tki.comfymodels.domain.ModelFolder.CONTROLNET.getDefaultFolderName();
+        if (nt.contains("upscale") || nt.contains("esrgan")) return de.tki.comfymodels.domain.ModelFolder.UPSCALE_MODELS.getDefaultFolderName();
+        if (nt.contains("latent_upscale")) return de.tki.comfymodels.domain.ModelFolder.LATENT_UPSCALE_MODELS.getDefaultFolderName();
+        if (nt.contains("clip_vision") || nt.contains("clipvision")) return de.tki.comfymodels.domain.ModelFolder.CLIP_VISION.getDefaultFolderName();
+        if (nt.contains("clip") || nt.contains("text_encoder") || nt.contains("tokenizer")) return de.tki.comfymodels.domain.ModelFolder.CLIP.getDefaultFolderName();
+        if (nt.contains("diffusion_model")) return de.tki.comfymodels.domain.ModelFolder.DIFFUSION_MODELS.getDefaultFolderName();
+        if (nt.contains("unet") || nt.contains("diffusion")) return de.tki.comfymodels.domain.ModelFolder.UNET.getDefaultFolderName();
+        if (nt.contains("gligen")) return de.tki.comfymodels.domain.ModelFolder.GLIGEN.getDefaultFolderName();
+        if (nt.contains("embeddings") || nt.contains("textual_inversion")) return de.tki.comfymodels.domain.ModelFolder.EMBEDDINGS.getDefaultFolderName();
+        if (nt.contains("hypernetwork")) return de.tki.comfymodels.domain.ModelFolder.HYPERNETWORKS.getDefaultFolderName();
+        if (nt.contains("photomaker")) return de.tki.comfymodels.domain.ModelFolder.PHOTOMAKER.getDefaultFolderName();
+        if (nt.contains("style_model")) return de.tki.comfymodels.domain.ModelFolder.STYLE_MODELS.getDefaultFolderName();
+        if (nt.contains("audio") && nt.contains("encoder")) return de.tki.comfymodels.domain.ModelFolder.AUDIO_ENCODERS.getDefaultFolderName();
+        if (nt.contains("diffusers")) return de.tki.comfymodels.domain.ModelFolder.DIFFUSERS.getDefaultFolderName();
+        if (nt.contains("configs")) return de.tki.comfymodels.domain.ModelFolder.CONFIGS.getDefaultFolderName();
+        if (nt.contains("model_patch")) return de.tki.comfymodels.domain.ModelFolder.MODEL_PATCHES.getDefaultFolderName();
         return null;
     }
 
     private String inferTypeFromKey(String k) {
         k = k.toLowerCase();
-        if (k.contains("lora")) return "loras";
-        if (k.contains("vae")) return "vae";
-        if (k.contains("clip_vision") || k.contains("clipvision")) return "clip_vision";
-        if (k.contains("clip") || k.contains("text_encoder") || k.contains("tokenizer")) return "clip";
-        if (k.contains("diffusion_model")) return "diffusion_models";
-        if (k.contains("unet") || k.contains("diffusion")) return "unet";
-        if (k.contains("control") && k.contains("net")) return "controlnet";
-        if (k.contains("upscale") || k.contains("esrgan")) return "upscale_models";
-        if (k.contains("embedding")) return "embeddings";
-        if (k.contains("hypernetwork")) return "hypernetworks";
-        if (k.contains("gligen")) return "gligen";
-        if (k.contains("photomaker")) return "photomaker";
-        if (k.contains("style_model")) return "style_models";
-        if (k.contains("audio") && k.contains("encoder")) return "audio_encoders";
-        if (k.contains("config")) return "configs";
+        if (k.contains("checkpoint")) return de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName();
+        if (k.contains("lora")) return de.tki.comfymodels.domain.ModelFolder.LORAS.getDefaultFolderName();
+        if (k.contains("vae")) return de.tki.comfymodels.domain.ModelFolder.VAE.getDefaultFolderName();
+        if (k.contains("clip_vision") || k.contains("clipvision")) return de.tki.comfymodels.domain.ModelFolder.CLIP_VISION.getDefaultFolderName();
+        if (k.contains("clip") || k.contains("text_encoder") || k.contains("tokenizer")) return de.tki.comfymodels.domain.ModelFolder.CLIP.getDefaultFolderName();
+        if (k.contains("diffusion_model")) return de.tki.comfymodels.domain.ModelFolder.DIFFUSION_MODELS.getDefaultFolderName();
+        if (k.contains("unet") || k.contains("diffusion")) return de.tki.comfymodels.domain.ModelFolder.UNET.getDefaultFolderName();
+        if (k.contains("control") && k.contains("net")) return de.tki.comfymodels.domain.ModelFolder.CONTROLNET.getDefaultFolderName();
+        if (k.contains("upscale") || k.contains("esrgan")) return de.tki.comfymodels.domain.ModelFolder.UPSCALE_MODELS.getDefaultFolderName();
+        if (k.contains("embedding")) return de.tki.comfymodels.domain.ModelFolder.EMBEDDINGS.getDefaultFolderName();
+        if (k.contains("hypernetwork")) return de.tki.comfymodels.domain.ModelFolder.HYPERNETWORKS.getDefaultFolderName();
+        if (k.contains("gligen")) return de.tki.comfymodels.domain.ModelFolder.GLIGEN.getDefaultFolderName();
+        if (k.contains("photomaker")) return de.tki.comfymodels.domain.ModelFolder.PHOTOMAKER.getDefaultFolderName();
+        if (k.contains("style_model")) return de.tki.comfymodels.domain.ModelFolder.STYLE_MODELS.getDefaultFolderName();
+        if (k.contains("audio") && k.contains("encoder")) return de.tki.comfymodels.domain.ModelFolder.AUDIO_ENCODERS.getDefaultFolderName();
+        if (k.contains("config")) return de.tki.comfymodels.domain.ModelFolder.CONFIGS.getDefaultFolderName();
         return null;
     }
 
     private void addModelInfo(List<ModelInfo> res, ModelInfo info) {
         for (ModelInfo e : res) {
             if (e.getName().equalsIgnoreCase(info.getName())) {
-                // If the existing entry is generic "checkpoints" but we found a more specific type
-                if ("checkpoints".equals(e.getType()) && !"checkpoints".equals(info.getType())) {
+                // If the existing entry is generic de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName() but we found a more specific type
+                if (de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName().equals(e.getType()) && !de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName().equals(info.getType())) {
                     e.setType(info.getType());
                     if (info.getSave_path() != null) e.setSave_path(info.getSave_path());
                 }
@@ -290,7 +305,7 @@ public class ComfyModelAnalyzer implements IModelAnalyzer {
                 if (e.getUrl().equals("MISSING") && !info.getUrl().equals("MISSING")) {
                     e.setUrl(info.getUrl());
                     if (info.getSave_path() != null) e.setSave_path(info.getSave_path());
-                    if (info.getType() != null && !"checkpoints".equals(info.getType())) e.setType(info.getType());
+                    if (info.getType() != null && !de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName().equals(info.getType())) e.setType(info.getType());
                 }
                 return;
             }

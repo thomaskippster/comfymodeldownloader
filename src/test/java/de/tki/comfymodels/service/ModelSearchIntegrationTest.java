@@ -8,6 +8,7 @@ import de.tki.comfymodels.service.impl.GeminiAIService;
 import de.tki.comfymodels.service.impl.ModelSearchService;
 import de.tki.comfymodels.service.impl.ModelListService;
 import de.tki.comfymodels.service.impl.ModelHashRegistry;
+import de.tki.comfymodels.service.impl.PathResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -36,7 +37,7 @@ public class ModelSearchIntegrationTest {
 
     // Manual Stubs to avoid Mockito/ByteBuddy issues on Java 25
     private static class ConfigServiceStub extends ConfigService {
-        public ConfigServiceStub() { super(null); }
+        public ConfigServiceStub() { super(null, null); }
         @Override public String getHfToken() { return ""; }
         @Override public String getModelsPath() { return "mock_path"; }
     }

@@ -28,7 +28,7 @@ public class ModelHashRegistryTest {
 
     @BeforeEach
     public void setup() throws Exception {
-        configService = new ConfigService(null) {
+        configService = new ConfigService(null, null) {
             @Override
             public File getFileInAppData(String filename) {
                 return tempDir.resolve(filename).toFile();

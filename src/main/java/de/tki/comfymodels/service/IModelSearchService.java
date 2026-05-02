@@ -21,4 +21,9 @@ public interface IModelSearchService {
 
     long getRemoteSize(String url);
     String formatSize(long bytes);
+
+    /**
+     * Checks Civitai for a newer version of the given model.
+     */
+    java.util.Optional<ModelInfo> checkForUpdate(ModelInfo current);
 }

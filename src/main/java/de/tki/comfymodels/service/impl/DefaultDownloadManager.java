@@ -24,11 +24,16 @@ public class DefaultDownloadManager implements IDownloadManager {
     private volatile boolean isStopped = false;
     private volatile boolean[] currentSelection;
     private final java.util.Set<Integer> completedIndices = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    private final java.util.Map<Integer, String> statusMap = new java.util.concurrent.ConcurrentHashMap<>();
 
     @Autowired
     private ConfigService configService;
 
+    @Autowired
+    private PathResolver pathResolver;
+
     private void safeUpdateStatus(int index, String status, BiConsumer<Integer, String> statusUpdater) {
+        statusMap.put(index, status);
         // Only mark as completed if it's a final state
         boolean isFinal = status.contains("✅ Finished") || 
                          status.contains("Stopped") || 
@@ -43,11 +48,17 @@ public class DefaultDownloadManager implements IDownloadManager {
     }
 
     @Override
+    public java.util.Map<Integer, String> getQueueStatus() {
+        return new java.util.HashMap<>(statusMap);
+    }
+
+    @Override
     public void startQueue(List<ModelInfo> models, boolean[] selectedIndices, String baseDir, BiConsumer<Integer, String> statusUpdater, Runnable onFinished) {
         isStopped = false;
         isPaused = false;
         this.currentSelection = selectedIndices;
         completedIndices.clear();
+        statusMap.clear();
         
         java.util.concurrent.atomic.AtomicBoolean finishedCalled = new java.util.concurrent.atomic.AtomicBoolean(false);
         
@@ -65,7 +76,6 @@ public class DefaultDownloadManager implements IDownloadManager {
                     }
 
                     if (!isSelected(index)) { 
-                        safeUpdateStatus(index, "Skipped (Not Selected)", statusUpdater);
                         futures[index] = java.util.concurrent.CompletableFuture.completedFuture(null);
                         continue;
                     }
@@ -77,11 +87,13 @@ public class DefaultDownloadManager implements IDownloadManager {
                         try {
                             String subPath = info.getSave_path();
                             if (subPath == null || subPath.isEmpty() || "default".equalsIgnoreCase(subPath)) {  
-                                subPath = info.getType() != null ? info.getType() : "checkpoints";
+                                subPath = de.tki.comfymodels.domain.ModelFolder.fromString(info.getType()).getDefaultFolderName();
                             }
 
-                            String finalBaseDir = baseDir != null ? baseDir : ".";
-                            Path targetDir = Paths.get(finalBaseDir, subPath);
+                            Path modelsBase = (baseDir != null && !baseDir.isEmpty()) ? 
+                                    pathResolver.resolve(baseDir) : 
+                                    pathResolver.resolve(configService.getModelsPath());
+                            Path targetDir = modelsBase.resolve(subPath);
                             Files.createDirectories(targetDir);
                             downloadWithResume(info, targetDir.resolve(info.getName()), index, statusUpdater);  
                         } catch (Exception e) { 
@@ -124,6 +136,10 @@ public class DefaultDownloadManager implements IDownloadManager {
             if (waitForPauseAndCheckSelection(index, statusUpdater)) return;
 
             File file = targetFile.toFile();
+            String archivePath = configService.getArchivePath();
+            boolean isActuallyInArchive = archivePath != null && !archivePath.isEmpty() && 
+                                         file.getAbsolutePath().toLowerCase().startsWith(new File(archivePath).getAbsolutePath().toLowerCase());
+
             String hfToken = configService.getHfToken();
 
             // Check disk space before starting
@@ -134,11 +150,12 @@ public class DefaultDownloadManager implements IDownloadManager {
                 }
             } catch (Exception ignored) {}
 
-            if (file.exists() && file.length() < 10240) {
-                file.delete();
+            if (file.exists() && (file.length() < 10240 || isActuallyInArchive)) {
+                // If it's in the archive, we don't treat it as "local existing model" for the download manager.
+                if (!isActuallyInArchive) file.delete();
             }
 
-            long existingFileSize = file.exists() ? file.length() : 0;
+            long existingFileSize = (file.exists() && !isActuallyInArchive) ? file.length() : 0;
 
             if (waitForPauseAndCheckSelection(index, statusUpdater)) return;
             

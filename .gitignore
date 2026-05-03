@@ -32,10 +32,12 @@ model_hashes.json
 
 # Local config & assets
 workflow.json
-*.json
 !pom.xml
 !src/**
 *.png
 *.bat
 *.zip
+model_hashes.json
+uploaded_models.json
+config.json
 !src/main/resources/known_good_urls.json

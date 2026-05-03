@@ -1,0 +1,26 @@
+{
+  "run": [
+    {
+      "method": "shell.run",
+      "params": {
+        "conda": "env",
+        "message": "conda install -y -c conda-forge openjdk=17 maven",
+        "title": "Installing Java & Maven (Local Environment)"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "conda": "env",
+        "message": "mvn clean package -DskipTests",
+        "title": "Building Application"
+      }
+    },
+    {
+      "method": "notify",
+      "params": {
+        "html": "Installation complete! The 'Start' button should now be available."
+      }
+    }
+  ]
+}

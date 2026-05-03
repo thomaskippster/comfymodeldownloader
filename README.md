@@ -32,7 +32,13 @@ The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" b
 
 ## 🚀 Getting Started
 
-### Prerequisites
+### ⚡ Quick Install (Pinokio)
+If you use [Pinokio](https://pinokio.computer), you can install this app with one click:
+1. Open Pinokio and click **Discover**.
+2. Search for `ComfyUI Model Downloader` or enter the repository URL.
+3. Click **Download** and then **Install**.
+
+### Prerequisites (Manual Install)
 *   **Java 17 or higher** (Required to run the application)
 *   **Maven** (Required for building from source)
 
@@ -45,10 +51,11 @@ The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" b
     ```bash
     mvn clean package
     ```
-3.  Run the application:
+3. Run the application:
     ```bash
-    java -jar target/comfyuimodel-downloader-1.0.5.jar
+    java -jar target/ComfyUIModelDownloader.jar
     ```
+
 
 ## 📖 How to use
 

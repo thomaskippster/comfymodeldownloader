@@ -1,0 +1,12 @@
+{
+  "run": [
+    {
+      "method": "shell.run",
+      "params": {
+        "conda": "env",
+        "message": "java --enable-native-access=ALL-UNNAMED -jar target/ComfyUIModelDownloader.jar",
+        "title": "Running ComfyUI Model Downloader"
+      }
+    }
+  ]
+}

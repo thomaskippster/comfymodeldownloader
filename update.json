@@ -1,0 +1,25 @@
+{
+  "run": [
+    {
+      "method": "shell.run",
+      "params": {
+        "message": "git pull",
+        "title": "Updating Source Code"
+      }
+    },
+    {
+      "method": "shell.run",
+      "params": {
+        "conda": "env",
+        "message": "mvn clean package -DskipTests",
+        "title": "Rebuilding Application"
+      }
+    },
+    {
+      "method": "notify",
+      "params": {
+        "html": "Update complete!"
+      }
+    }
+  ]
+}

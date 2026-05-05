@@ -4,7 +4,7 @@
 
     <groupId>de.tki</groupId>
     <artifactId>comfyuimodel-downloader</artifactId>
-    <version>1.0.10</version>
+    <version>1.0.11</version>
 
     <scm>
         <connection>scm:git:https://github.com/thomaskippster/comfymodeldownloader.git</connection>

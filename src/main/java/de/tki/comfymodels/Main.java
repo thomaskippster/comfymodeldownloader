@@ -1299,6 +1299,10 @@ public class Main extends JFrame {
                 List<Path> allFiles = Files.walk(root.toPath())
                         .filter(Files::isRegularFile)
                         .filter(p -> {
+                            String relPath = root.toPath().relativize(p).toString().toLowerCase();
+                            return !relPath.contains(".venv") && !relPath.contains("archive");
+                        })
+                        .filter(p -> {
                             String n = p.getFileName().toString().toLowerCase();
                             return n.endsWith(".safetensors") || n.endsWith(".sft") || n.endsWith(".ckpt") || n.endsWith(".pth") || n.endsWith(".pt") || n.endsWith(".bin");
                         })

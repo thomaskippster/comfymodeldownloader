@@ -44,6 +44,7 @@ public class CleanupService implements ICleanupService {
         try (Stream<Path> walk = Files.walk(root)) {
             List<Path> candidates = walk.filter(Files::isRegularFile)
                     .filter(this::isSupportedModel)
+                    .filter(p -> !isIgnored(p, root))
                     .collect(Collectors.toList());
 
             for (Path p : candidates) {
@@ -67,6 +68,22 @@ public class CleanupService implements ICleanupService {
         return unused;
     }
 
+    private boolean isIgnored(Path path, Path rootPath) {
+        int rootCount = rootPath.getNameCount();
+        for (int i = rootCount; i < path.getNameCount(); i++) {
+            String part = path.getName(i).toString().toLowerCase();
+            if (part.equals("archive") || part.equals(".venv")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private boolean isSupportedModel(Path p) {
+        String n = p.getFileName().toString().toLowerCase();
+        return n.endsWith(".safetensors") || n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") || n.endsWith(".bin");
+    }
+
     @Override
     public void archiveModels(List<ModelInfo> models, BiConsumer<Integer, String> onStatusUpdate, Runnable onFinished) {
         new Thread(() -> {
@@ -83,11 +100,6 @@ public class CleanupService implements ICleanupService {
             }
             if (onFinished != null) onFinished.run();
         }).start();
-    }
-
-    private boolean isSupportedModel(Path p) {
-        String n = p.getFileName().toString().toLowerCase();
-        return n.endsWith(".safetensors") || n.endsWith(".ckpt") || n.endsWith(".pt") || n.endsWith(".pth") || n.endsWith(".bin");
     }
 
     private ModelInfo createInfo(Path p, Path root, BasicFileAttributes attrs) {

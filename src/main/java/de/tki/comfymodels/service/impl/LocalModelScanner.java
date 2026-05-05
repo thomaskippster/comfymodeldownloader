@@ -53,7 +53,7 @@ public class LocalModelScanner {
             List<Path> files = walk
                     .filter(Files::isRegularFile)
                     .filter(this::isSupportedModelFile)
-                    .filter(p -> !isArchived(p, rootPath))
+                    .filter(p -> !isIgnored(p, rootPath))
                     .collect(Collectors.toList());
 
             for (Path file : files) {
@@ -91,7 +91,7 @@ public class LocalModelScanner {
         
         try (Stream<Path> walk = Files.walk(root)) {
             List<Path> matches = walk.filter(Files::isRegularFile)
-                    .filter(p -> !isArchived(p, root))
+                    .filter(p -> !isIgnored(p, root))
                     .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
                     .collect(Collectors.toList());
             
@@ -119,7 +119,7 @@ public class LocalModelScanner {
         return name.endsWith(".safetensors") || name.endsWith(".ckpt") || name.endsWith(".pt");
     }
 
-    private boolean isArchived(Path path, Path rootPath) {
+    private boolean isIgnored(Path path, Path rootPath) {
         // 1. If we are already searching inside an archive folder (e.g. E:\Archive), 
         // we should not filter out anything based on the "archive" name.
         String rootName = rootPath.getFileName() != null ? rootPath.getFileName().toString().toLowerCase() : "";
@@ -138,10 +138,11 @@ public class LocalModelScanner {
             }
         } catch (Exception ignored) {}
 
-        // 3. Fallback: ignore any subfolder named "archive"
+        // 3. Fallback: ignore any subfolder named "archive" or ".venv"
         int rootCount = rootPath.getNameCount();
         for (int i = rootCount; i < path.getNameCount(); i++) {
-            if (path.getName(i).toString().equalsIgnoreCase("archive")) {
+            String part = path.getName(i).toString().toLowerCase();
+            if (part.equals("archive") || part.equals(".venv")) {
                 return true;
             }
         }

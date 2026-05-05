@@ -44,9 +44,10 @@ class CleanupServiceTest {
 
         Path oldModel = tempDir.resolve("old.safetensors");
         Files.createFile(oldModel);
-        // Set last access time to 6 months ago
+        // Set last access and modified time to 6 months ago
         FileTime sixMonthsAgo = FileTime.from(Instant.now().minus(180, ChronoUnit.DAYS));
         Files.setAttribute(oldModel, "lastAccessTime", sixMonthsAgo);
+        Files.setAttribute(oldModel, "lastModifiedTime", sixMonthsAgo);
 
         Path newModel = tempDir.resolve("new.safetensors");
         Files.createFile(newModel);

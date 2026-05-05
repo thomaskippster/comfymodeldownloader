@@ -1467,7 +1467,11 @@ public class Main extends JFrame {
                     archiveService.moveToArchiveWithProgress(folder, name, update);
                     return true;
                 } catch (IOException ex) {
-                    ex.printStackTrace();
+                    SwingUtilities.invokeLater(() -> {
+                        JOptionPane.showMessageDialog(dialog, 
+                            "Failed to archive '" + name + "':\n" + ex.getMessage(), 
+                            "Archive Error", JOptionPane.ERROR_MESSAGE);
+                    });
                     return false;
                 }
             });

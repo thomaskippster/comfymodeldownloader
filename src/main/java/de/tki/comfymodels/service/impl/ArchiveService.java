@@ -47,23 +47,33 @@ public class ArchiveService {
         if (pathStr == null || pathStr.isEmpty()) return grouped;
         
         Path root = Paths.get(pathStr);
-        if (!Files.exists(root)) return grouped;
+        if (!Files.exists(root)) {
+            System.err.println("Scan directory does not exist: " + pathStr);
+            return grouped;
+        }
 
         try (Stream<Path> walk = Files.walk(root)) {
             walk.filter(p -> {
-                    // Ignore hidden directories and .venv / venv
-                    for (Path part : root.relativize(p)) {
-                        String name = part.toString();
-                        if (name.startsWith(".") || name.equalsIgnoreCase("venv") || name.equalsIgnoreCase(".venv") || name.equalsIgnoreCase("__pycache__")) {
-                            return false;
+                    try {
+                        // Ignore hidden directories and .venv / venv
+                        Path relativeToRoot = root.relativize(p);
+                        for (Path part : relativeToRoot) {
+                            String name = part.toString();
+                            if (name.startsWith(".") || name.equalsIgnoreCase("venv") || name.equalsIgnoreCase(".venv") || name.equalsIgnoreCase("__pycache__")) {
+                                return false;
+                            }
                         }
+                        return true;
+                    } catch (IllegalArgumentException e) {
+                        return false;
                     }
-                    return true;
                 })
-                .filter(Files::isRegularFile)
+                .filter(p -> Files.isRegularFile(p))
                 .filter(this::isSupportedModel)
                 .filter(p -> !excludeArchived || !isAlreadyArchived(p))
                 .forEach(p -> {
+                    if (!Files.exists(p)) return; // Double check existence
+
                     Path relative = root.relativize(p);
                     String folder = relative.getParent() != null ? relative.getParent().toString().replace("\\", "/") : "root";
                     
@@ -87,6 +97,7 @@ public class ArchiveService {
                     grouped.computeIfAbsent(folder, k -> new ArrayList<>()).add(info);
                 });
         } catch (IOException e) {
+            System.err.println("Error walking directory " + pathStr + ": " + e.getMessage());
             e.printStackTrace();
         }
         

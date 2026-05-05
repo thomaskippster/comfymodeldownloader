@@ -76,6 +76,7 @@ public class DefaultDownloadManager implements IDownloadManager {
                     }
 
                     if (!isSelected(index)) { 
+                        safeUpdateStatus(index, "Skipped (Not Selected)", statusUpdater);
                         futures[index] = java.util.concurrent.CompletableFuture.completedFuture(null);
                         continue;
                     }

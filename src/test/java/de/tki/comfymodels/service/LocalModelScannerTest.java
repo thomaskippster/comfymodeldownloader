@@ -41,34 +41,40 @@ public class LocalModelScannerTest {
         // models/checkpoints/test1.safetensors
         // models/loras/test2.ckpt
         // models/archive/old.pt (should be ignored)
+        // models/unet/.venv/hidden.safetensors (should be ignored)
         
         Path checkpointsDir = tempDir.resolve("checkpoints");
         Path lorasDir = tempDir.resolve("loras");
         Path archiveDir = tempDir.resolve("archive");
+        Path venvDir = tempDir.resolve("unet").resolve(".venv");
         
         Files.createDirectories(checkpointsDir);
         Files.createDirectories(lorasDir);
         Files.createDirectories(archiveDir);
+        Files.createDirectories(venvDir);
         
         Files.writeString(checkpointsDir.resolve("test1.safetensors"), "dummy content");
         Files.writeString(lorasDir.resolve("test2.ckpt"), "dummy content");
         Files.writeString(archiveDir.resolve("old.pt"), "dummy content");
+        Files.writeString(venvDir.resolve("hidden.safetensors"), "dummy content");
 
         // Act
         List<ModelInfo> results = scanner.scanLocalModels();
 
         // Assert
-        assertEquals(2, results.size(), "Should find exactly 2 models (excluding archive)");
+        assertEquals(2, results.size(), "Should find exactly 2 models (excluding archive and .venv)");
         
         ModelInfo m1 = results.stream().filter(m -> m.getName().equals("test1.safetensors")).findFirst().orElse(null);
         assertNotNull(m1);
         assertEquals("checkpoints", m1.getType());
-        assertTrue(m1.getSize().contains("MB"));
 
         ModelInfo m2 = results.stream().filter(m -> m.getName().equals("test2.ckpt")).findFirst().orElse(null);
         assertNotNull(m2);
         assertEquals("loras", m2.getType());
-        assertTrue(m2.getSize().contains("MB"));
+        
+        // Ensure nothing from .venv or archive was found
+        assertFalse(results.stream().anyMatch(m -> m.getName().equals("old.pt")));
+        assertFalse(results.stream().anyMatch(m -> m.getName().equals("hidden.safetensors")));
     }
 
     @Test

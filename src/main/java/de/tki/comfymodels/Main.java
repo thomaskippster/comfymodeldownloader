@@ -1424,6 +1424,18 @@ public class Main extends JFrame {
             }
         }
 
+        Map<String, List<ModelInfo>> groupedToRestore = archiveService.getArchivedModelsGroupedByFolder();
+        DefaultTableModel restoreTableModel = new DefaultTableModel(columns, 0) {
+            @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
+            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
+        };
+
+        for (Map.Entry<String, List<ModelInfo>> entry : groupedToRestore.entrySet()) {
+            for (ModelInfo model : entry.getValue()) {
+                restoreTableModel.addRow(new Object[]{false, entry.getKey(), model.getName(), model.getSize()});
+            }
+        }
+
         JTable archiveTable = new JTable(archiveTableModel);
         archiveTable.setRowHeight(25);
         archiveTable.getColumnModel().getColumn(0).setMaxWidth(50);
@@ -1446,7 +1458,7 @@ public class Main extends JFrame {
             for (int i = 0; i < archiveTableModel.getRowCount(); i++) if ((Boolean) archiveTableModel.getValueAt(i, 0)) selectedRows.add(i);
             if (selectedRows.isEmpty()) return;
             
-            showModalProgressDialog("Archive", "Archiving", selectedRows, archiveTableModel, (folder, name, update) -> {
+            showModalProgressDialog("Archive", "Archiving", selectedRows, archiveTableModel, restoreTableModel, (folder, name, update) -> {
                 try {
                     archiveService.moveToArchiveWithProgress(folder, name, update);
                     return true;
@@ -1467,18 +1479,6 @@ public class Main extends JFrame {
         JPanel restorePanel = new JPanel(new BorderLayout(10, 10));
         restorePanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
         
-        Map<String, List<ModelInfo>> groupedToRestore = archiveService.getArchivedModelsGroupedByFolder();
-        DefaultTableModel restoreTableModel = new DefaultTableModel(columns, 0) {
-            @Override public Class<?> getColumnClass(int c) { return c == 0 ? Boolean.class : String.class; }
-            @Override public boolean isCellEditable(int r, int c) { return c == 0; }
-        };
-
-        for (Map.Entry<String, List<ModelInfo>> entry : groupedToRestore.entrySet()) {
-            for (ModelInfo model : entry.getValue()) {
-                restoreTableModel.addRow(new Object[]{false, entry.getKey(), model.getName(), model.getSize()});
-            }
-        }
-
         JTable restoreTable = new JTable(restoreTableModel);
         restoreTable.setRowHeight(25);
         restoreTable.getColumnModel().getColumn(0).setMaxWidth(50);
@@ -1501,7 +1501,7 @@ public class Main extends JFrame {
             for (int i = 0; i < restoreTableModel.getRowCount(); i++) if ((Boolean) restoreTableModel.getValueAt(i, 0)) selectedRows.add(i);
             if (selectedRows.isEmpty()) return;
             
-            showModalProgressDialog("Restore", "Restoring", selectedRows, restoreTableModel, (folder, name, update) -> {
+            showModalProgressDialog("Restore", "Restoring", selectedRows, restoreTableModel, archiveTableModel, (folder, name, update) -> {
                 return archiveService.restoreFromArchiveWithProgress(folder, name, update);
             });
         });
@@ -1526,8 +1526,14 @@ public class Main extends JFrame {
         dialog.setVisible(true);
     }
 
+    private static class ArchiveWorkItem {
+        int index;
+        String folder, name, size;
+        ArchiveWorkItem(int i, String f, String n, String s) { index = i; folder = f; name = n; size = s; }
+    }
+
     private void showModalProgressDialog(String title, String statusPrefix, List<Integer> selectedRows, 
-                                        DefaultTableModel tableModel, TaskExecutor executor) {
+                                        DefaultTableModel sourceModel, DefaultTableModel targetModel, TaskExecutor executor) {
         JDialog progressDialog = new JDialog(this, title, true);
         progressDialog.setLayout(new BorderLayout(10, 10));
         progressDialog.setSize(500, 180);
@@ -1545,32 +1551,30 @@ public class Main extends JFrame {
 
         panel.add(label, BorderLayout.NORTH);
         panel.add(progressBar, BorderLayout.CENTER);
-
         progressDialog.add(panel, BorderLayout.CENTER);
 
-        // Pre-calculate total size for precise percentage
+        // Pre-collect data on EDT
+        List<ArchiveWorkItem> workItems = new ArrayList<>();
         long totalBytes = 0;
         for (int row : selectedRows) {
-            totalBytes += parseSizeToBytes((String) tableModel.getValueAt(row, 3));
+            String sizeStr = (String) sourceModel.getValueAt(row, 3);
+            workItems.add(new ArchiveWorkItem(row, (String) sourceModel.getValueAt(row, 1), (String) sourceModel.getValueAt(row, 2), sizeStr));
+            totalBytes += parseSizeToBytes(sizeStr);
         }
         final long finalTotalBytes = totalBytes > 0 ? totalBytes : 1; 
 
         new Thread(() -> {
             int successCount = 0;
-            List<Integer> processedRows = new ArrayList<>();
+            List<Object[]> rowsToMove = new ArrayList<>();
+            List<Integer> processedRowIndices = new ArrayList<>();
             long[] bytesProcessedTotal = {0};
 
-            for (int i = 0; i < selectedRows.size(); i++) {
-                int row = selectedRows.get(i);
-                String folder = (String) tableModel.getValueAt(row, 1);
-                String name = (String) tableModel.getValueAt(row, 2);
-                
+            for (int i = 0; i < workItems.size(); i++) {
+                ArchiveWorkItem item = workItems.get(i);
                 final int fileIndex = i + 1;
-                SwingUtilities.invokeLater(() -> {
-                    label.setText(statusPrefix + " (" + fileIndex + "/" + selectedRows.size() + "): " + name);
-                });
+                SwingUtilities.invokeLater(() -> label.setText(statusPrefix + " (" + fileIndex + "/" + workItems.size() + "): " + item.name));
 
-                if (executor.execute(folder, name, (bytesDelta) -> {
+                if (executor.execute(item.folder, item.name, (bytesDelta) -> {
                     bytesProcessedTotal[0] += bytesDelta;
                     final long current = bytesProcessedTotal[0];
                     final int percent = (int) Math.min(100, (current * 100) / finalTotalBytes);
@@ -1580,15 +1584,18 @@ public class Main extends JFrame {
                     });
                 })) {
                     successCount++;
-                    processedRows.add(row);
+                    processedRowIndices.add(item.index);
+                    rowsToMove.add(new Object[]{false, item.folder, item.name, item.size});
                 }
             }
 
             final int finalSuccess = successCount;
             SwingUtilities.invokeLater(() -> {
                 progressDialog.dispose();
-                processedRows.sort((a, b) -> b.compareTo(a));
-                for (int r : processedRows) tableModel.removeRow(r);
+                processedRowIndices.sort((a, b) -> b.compareTo(a));
+                for (int r : processedRowIndices) sourceModel.removeRow(r);
+                for (Object[] rowData : rowsToMove) targetModel.addRow(rowData);
+                
                 JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
                     "Operation Complete", JOptionPane.INFORMATION_MESSAGE);
                 analyzeJsonContent();

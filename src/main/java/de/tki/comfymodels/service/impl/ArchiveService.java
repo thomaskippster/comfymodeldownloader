@@ -50,12 +50,22 @@ public class ArchiveService {
         if (!Files.exists(root)) return grouped;
 
         try (Stream<Path> walk = Files.walk(root)) {
-            walk.filter(Files::isRegularFile)
+            walk.filter(p -> {
+                    // Ignore hidden directories and .venv / venv
+                    for (Path part : root.relativize(p)) {
+                        String name = part.toString();
+                        if (name.startsWith(".") || name.equalsIgnoreCase("venv") || name.equalsIgnoreCase(".venv") || name.equalsIgnoreCase("__pycache__")) {
+                            return false;
+                        }
+                    }
+                    return true;
+                })
+                .filter(Files::isRegularFile)
                 .filter(this::isSupportedModel)
                 .filter(p -> !excludeArchived || !isAlreadyArchived(p))
                 .forEach(p -> {
                     Path relative = root.relativize(p);
-                    String folder = relative.getParent() != null ? relative.getParent().toString() : "root";
+                    String folder = relative.getParent() != null ? relative.getParent().toString().replace("\\", "/") : "root";
                     
                     ModelInfo info = new ModelInfo();
                     info.setName(p.getFileName().toString());

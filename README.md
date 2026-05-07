@@ -32,18 +32,27 @@ The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" b
 
 ## 🚀 Getting Started
 
-### ⚡ Quick Install (Pinokio)
+Choose one of the following three ways to install and run the application:
+
+### 1. 📥 Direct Download (SourceForge) - Recommended for most users
+The fastest way to get the latest stable version.
+*   Download the latest release from [SourceForge](https://sourceforge.net/projects/comfymodeldownloader/).
+
+### 2. ⚡ Quick Install (Pinokio)
 If you use [Pinokio](https://pinokio.computer), you can install this app with one click:
 1. Open Pinokio and click **Discover**.
-2. Search for `ComfyUI Model Downloader` or enter the repository URL.
+2. Search for `ComfyUI Model Downloader`.
 3. Click **Download** and then **Install**.
 
-### Prerequisites (Manual Install)
-*   **Java 17 or higher** (Required to run the application)
-*   **Maven** (Required for building from source)
+### 3. 🛠️ Manual Install (GitHub) - For developers
+Download the source code and build it yourself.
 
-### Installation
-1.  Download the latest release or clone the repo:
+**Prerequisites:**
+*   **Java 17 or higher**
+*   **Maven**
+
+**Steps:**
+1.  Clone the repository:
     ```bash
     git clone https://github.com/thomaskippster/comfymodeldownloader
     ```

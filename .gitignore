@@ -35,6 +35,8 @@ workflow.json
 !pom.xml
 !src/**
 *.png
+!icon.png
+env/
 *.bat
 *.zip
 model_hashes.json

@@ -35,10 +35,17 @@ const initializeExtension = async () => {
                                 if (widget && widget.type === "combo") {
                                     widget.options.values = newValues;
                                     
-                                    // Falls das gewählte Modell jetzt da ist, "heilen" wir den Node
+                                    // Validierung: Ist das aktuell gewählte Modell noch da?
                                     if (newValues.includes(widget.value)) {
-                                        node.color = "";
-                                        node.bgcolor = "";
+                                        // Modell vorhanden -> Node "heilen" (Farbe zurücksetzen)
+                                        if (node.color === "#322" || node.color === "#a22") {
+                                            node.color = "";
+                                            node.bgcolor = "";
+                                        }
+                                    } else if (widget.value && widget.value !== "None") {
+                                        // Modell fehlt -> Node rot markieren (ComfyUI Standard für Fehler)
+                                        node.color = "#322";
+                                        node.bgcolor = "#a22";
                                     }
                                 }
                             }
@@ -52,7 +59,7 @@ const initializeExtension = async () => {
             app.graph.setDirtyCanvas(true, true);
             
             if (app.ui?.dialog?.show) {
-                app.ui.dialog.show("✅ Sync abgeschlossen! Neue Modelle wurden in die Dropdowns geladen.");
+                app.ui.dialog.show("✅ Synchronisation abgeschlossen! Die Modell-Listen wurden aktualisiert.");
             }
 
         } catch (e) {

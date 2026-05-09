@@ -39,6 +39,42 @@ const tryImports = async () => {
 
 await tryImports();
 
+// NEU: Dynamischer Import für den WebSocket-Listener
+const setupListener = async () => {
+    const apiPaths = [
+        "../../scripts/api.js",
+        "/scripts/api.js",
+        "../../../scripts/api.js"
+    ];
+
+    for (const path of apiPaths) {
+        try {
+            const mod = await import(path);
+            if (mod.api) {
+                console.log("%c[Model-Downloader] WebSocket Listener erfolgreich verknüpft!", "color: #00ff00; font-weight: bold;");
+                
+                mod.api.addEventListener("kippster-refresh-ui", (event) => {
+                    console.log("%c🔥 [Model-Downloader] SIGNAL EMPFANGEN! Lade UI neu...", "background: #ff0000; color: #fff; font-size: 14px;");
+                    
+                    if (app && typeof app.refresh === 'function') {
+                        app.refresh(); // Aktualisiert die Model-Dropdowns!
+                        
+                        // Kleines UI-Popup zur Bestätigung
+                        if (app.ui?.dialog?.show) {
+                            app.ui.dialog.show("✅ Downloads abgeschlossen! Modelle sind jetzt im Dropdown.");
+                        } else {
+                            alert("✅ Downloads abgeschlossen! Modelle aktualisiert.");
+                        }
+                    }
+                });
+                break; // Erfolgreich gefunden, Schleife abbrechen
+            }
+        } catch (e) {}
+    }
+};
+
+await setupListener();
+
 // Define setup logic that can be called by extension or as fallback
 const initializeExtension = async () => {
     let apiToken = null;
@@ -295,33 +331,6 @@ const initializeExtension = async () => {
 
     addFAB(); addClassic(); addV2Action();
 };
-
-// NEU: Wir laden die API
-const setupListener = async () => {
-    try {
-        const { api } = await import("../../scripts/api.js");
-        api.addEventListener("kippster-refresh-ui", (event) => {
-            console.log("%c[Model-Downloader] Triggering UI Refresh!", "background: green; color: white;");
-            
-            if (app && app.refresh) {
-                app.refresh(); // Magischer Reload-Befehl
-                
-                // Kleines Popup für den User
-                const notify = (msg) => {
-                    if (app.ui?.dialog?.show) app.ui.dialog.show(msg);
-                    else if (window.comfyAPI?.dialog?.show) window.comfyAPI.dialog.show(msg);
-                    else alert(msg);
-                };
-                notify("✅ Downloads abgeschlossen! Modelle sind jetzt in ComfyUI verfügbar.");
-            }
-        });
-        console.log("[Model-Downloader] WebSocket Listener aktiv.");
-    } catch (e) {
-        console.error("[Model-Downloader] Konnte API nicht für Listener laden.", e);
-    }
-};
-
-setupListener();
 
 if (app) {
     app.registerExtension({ name: "TKI.ModelDownloader", async setup() { await initializeExtension(); } });

@@ -123,14 +123,17 @@ public class DefaultDownloadManager implements IDownloadManager {
     // NEU: Benachrichtigt ComfyUI
     private void notifyComfyUI() {
         try {
+            System.out.println("🚀 [Model-Downloader] Sende Refresh-Ping an ComfyUI (Port 8188)...");
             HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create("http://127.0.0.1:8188/kippster/model-downloaded"))
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
-            // Fire and forget
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding());
+            
+            // Synchron senden, damit wir sehen, was passiert
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            System.out.println("✅ [Model-Downloader] ComfyUI hat geantwortet mit Status: " + response.statusCode());
         } catch (Exception e) {
-            // Wenn ComfyUI nicht läuft, ignorieren wir das leise
+            System.err.println("❌ [Model-Downloader] Konnte ComfyUI nicht erreichen. Läuft es auf Port 8188? Fehler: " + e.getMessage());
         }
     }
 

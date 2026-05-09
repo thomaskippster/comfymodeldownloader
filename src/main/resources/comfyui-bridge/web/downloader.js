@@ -39,23 +39,47 @@ const tryImports = async () => {
 
 await tryImports();
 
+// NEU: Dynamischer Import für den WebSocket-Listener
+const setupListener = async () => {
+    const apiPaths = [
+        "../../scripts/api.js",
+        "/scripts/api.js",
+        "../../../scripts/api.js"
+    ];
+
+    for (const path of apiPaths) {
+        try {
+            const mod = await import(path);
+            if (mod.api) {
+                console.log("%c[Model-Downloader] WebSocket Listener erfolgreich verknüpft!", "color: #00ff00; font-weight: bold;");
+                
+                mod.api.addEventListener("kippster-refresh-ui", (event) => {
+                    console.log("%c🔥 [Model-Downloader] SIGNAL EMPFANGEN! Lade UI neu...", "background: #ff0000; color: #fff; font-size: 14px;");
+                    
+                    if (app && typeof app.refresh === 'function') {
+                        app.refresh(); // Aktualisiert die Model-Dropdowns!
+                        
+                        // Kleines UI-Popup zur Bestätigung
+                        if (app.ui?.dialog?.show) {
+                            app.ui.dialog.show("✅ Downloads abgeschlossen! Modelle sind jetzt im Dropdown.");
+                        } else {
+                            alert("✅ Downloads abgeschlossen! Modelle aktualisiert.");
+                        }
+                    }
+                });
+                break; // Erfolgreich gefunden, Schleife abbrechen
+            }
+        } catch (e) {}
+    }
+};
+
+await setupListener();
+
 // Define setup logic that can be called by extension or as fallback
 const initializeExtension = async () => {
     let apiToken = null;
 
-    if (api) {
-        api.addEventListener("kippster-refresh-ui", () => {
-            console.log("[Model-Downloader] Refresh event received from WebSocket. Refreshing ComfyUI...");
-            if (app?.refresh) {
-                app.refresh();
-                // We don't use alert() here because it's annoying during background downloads, 
-                // but we could use a non-blocking toast if available.
-                if (app.ui?.dialog?.show) {
-                    // Optional: show a temporary notification if we want
-                }
-            }
-        });
-    }
+    // We removed the old inline listener here to avoid duplicates
 
     const loadConfig = async () => {
         try {

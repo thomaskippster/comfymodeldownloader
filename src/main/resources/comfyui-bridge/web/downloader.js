@@ -1,11 +1,17 @@
-// Try different ways to get the ComfyUI app object
+// Try different ways to get the ComfyUI app and api objects
 let app = null;
+let api = null;
 
 const tryImports = async () => {
     const paths = [
         "../../scripts/app.js",
         "/scripts/app.js",
         "../../../scripts/app.js"
+    ];
+    const apiPaths = [
+        "../../scripts/api.js",
+        "/scripts/api.js",
+        "../../../scripts/api.js"
     ];
 
     for (const path of paths) {
@@ -18,6 +24,17 @@ const tryImports = async () => {
             }
         } catch (e) {}
     }
+
+    for (const path of apiPaths) {
+        try {
+            const mod = await import(path);
+            if (mod.api) {
+                api = mod.api;
+                console.log(`[Model-Downloader] Successfully imported api from ${path}`);
+                break;
+            }
+        } catch (e) {}
+    }
 };
 
 await tryImports();
@@ -25,6 +42,20 @@ await tryImports();
 // Define setup logic that can be called by extension or as fallback
 const initializeExtension = async () => {
     let apiToken = null;
+
+    if (api) {
+        api.addEventListener("kippster-refresh-ui", () => {
+            console.log("[Model-Downloader] Refresh event received from WebSocket. Refreshing ComfyUI...");
+            if (app?.refresh) {
+                app.refresh();
+                // We don't use alert() here because it's annoying during background downloads, 
+                // but we could use a non-blocking toast if available.
+                if (app.ui?.dialog?.show) {
+                    // Optional: show a temporary notification if we want
+                }
+            }
+        });
+    }
 
     const loadConfig = async () => {
         try {
@@ -57,6 +88,31 @@ const initializeExtension = async () => {
         else alert(msg);
     };
 
+    const showConnectionError = () => {
+        const dialog = document.createElement("dialog");
+        dialog.style = "background:#222; color:white; border:2px solid #ffcc00; border-radius:10px; padding:20px; width:450px; font-family:sans-serif; box-shadow:0 0 30px rgba(0,0,0,0.5); z-index:20002;";
+        dialog.innerHTML = `
+            <div style="text-align:center;">
+                <div style="font-size:50px; margin-bottom:15px;">🚀❌</div>
+                <h2 style="margin-top:0; color:#ffcc00;">Downloader nicht erreichbar</h2>
+                <p style="line-height:1.5;">Die Model Downloader App antwortet nicht. Bitte stelle sicher, dass:</p>
+                <ul style="text-align:left; display:inline-block; margin-bottom:20px;">
+                    <li>Die Java-App gestartet wurde.</li>
+                    <li>Port 12345 nicht blockiert wird.</li>
+                </ul>
+                <p>Noch nicht installiert? Lade die App hier herunter:</p>
+                <a href="https://sourceforge.net/projects/comfymodeldownloader/" target="_blank" style="display:block; background:#ffcc00; color:black; text-decoration:none; padding:10px; border-radius:5px; font-weight:bold; margin-bottom:20px;">📥 Download via SourceForge</a>
+                <button id="tki-error-close" style="background:#444; color:white; border:none; padding:10px 20px; border-radius:5px; cursor:pointer;">Schließen</button>
+            </div>
+        `;
+        document.body.appendChild(dialog);
+        dialog.showModal();
+        dialog.querySelector("#tki-error-close").onclick = () => {
+            dialog.close();
+            document.body.removeChild(dialog);
+        };
+    };
+
     const sendWorkflow = async () => {
         if (!app || !app.graph) return notify("❌ Fehler: ComfyUI Graph nicht bereit.");
         if (!apiToken) return notify("❌ Sicherheits-Fehler: Kein API-Token gefunden.");
@@ -75,7 +131,7 @@ const initializeExtension = async () => {
             if (response.ok) notify("🚀 Workflow erfolgreich gesendet!");
             else notify("❌ Fehler: Downloader abgelehnt (Status: " + response.status + ")");
         } catch (e) {
-            notify("❌ Keine Verbindung zum Downloader-Tool! Läuft die Java-App?");
+            showConnectionError();
         }
     };
 
@@ -156,8 +212,9 @@ const initializeExtension = async () => {
                 selectAll.onchange = () => checkboxes.forEach(cb => cb.checked = selectAll.checked);
 
             } catch (e) {
-                notify("❌ Fehler beim Laden der Modelle.");
                 dialog.close();
+                document.body.removeChild(dialog);
+                showConnectionError();
             }
         };
 
@@ -194,12 +251,19 @@ const initializeExtension = async () => {
                     btn.disabled = false;
                     refreshData(); // Reload list
                 } else {
-                    throw new Error("API Fehler");
+                    throw new Error("API Fehler (Status: " + res.status + ")");
                 }
             } catch (e) {
-                alert("Fehler: " + e.message);
+                console.error("[Model-Downloader] Archive error:", e);
                 btn.disabled = false;
                 status.textContent = "";
+                if (e.message.includes("fetch") || e.name === "TypeError") {
+                    dialog.close();
+                    document.body.removeChild(dialog);
+                    showConnectionError();
+                } else {
+                    alert("Fehler: " + e.message);
+                }
             }
         };
     };

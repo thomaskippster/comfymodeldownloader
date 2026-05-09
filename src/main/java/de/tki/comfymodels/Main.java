@@ -55,6 +55,7 @@ public class Main extends JFrame {
     private final IModelValidator modelValidator;
     private final de.tki.comfymodels.service.impl.RestBridgeService restBridge;
     private final de.tki.comfymodels.service.impl.ArchiveService archiveService;
+    private final de.tki.comfymodels.service.impl.ComfyUIBridgeClient bridgeClient;
 
     @Autowired
     private ConfigService configService;
@@ -89,7 +90,8 @@ public class Main extends JFrame {
     public Main(IModelAnalyzer analyzer, IDownloadManager downloadManager,
                 IWorkflowService workflowService, IModelSearchService searchService,
                 IModelValidator modelValidator, de.tki.comfymodels.service.impl.RestBridgeService restBridge,
-                de.tki.comfymodels.service.impl.ArchiveService archiveService) {
+                de.tki.comfymodels.service.impl.ArchiveService archiveService,
+                de.tki.comfymodels.service.impl.ComfyUIBridgeClient bridgeClient) {
         this.analyzer = analyzer;
         this.downloadManager = downloadManager;
         this.workflowService = workflowService;
@@ -97,6 +99,7 @@ public class Main extends JFrame {
         this.modelValidator = modelValidator;
         this.restBridge = restBridge;
         this.archiveService = archiveService;
+        this.bridgeClient = bridgeClient;
     }
 
     public void launch(String[] args) {
@@ -766,6 +769,7 @@ public class Main extends JFrame {
                     () -> SwingUtilities.invokeLater(() -> {
                         downloadButton.setEnabled(true);
                         statusLabel.setText("Queue finished.");
+                        bridgeClient.notifyModelDownloaded();
                         if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
                     })
                 );

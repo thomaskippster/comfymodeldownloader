@@ -113,10 +113,25 @@ public class DefaultDownloadManager implements IDownloadManager {
                 
             } finally {
                 if (finishedCalled.compareAndSet(false, true)) {
+                    notifyComfyUI(); // NEU: Ping abfeuern
                     onFinished.run();
                 }
             }
         }).start();
+    }
+
+    // NEU: Benachrichtigt ComfyUI
+    private void notifyComfyUI() {
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create("http://127.0.0.1:8188/kippster/model-downloaded"))
+                .POST(HttpRequest.BodyPublishers.noBody())
+                .build();
+            // Fire and forget
+            httpClient.sendAsync(request, HttpResponse.BodyHandlers.discarding());
+        } catch (Exception e) {
+            // Wenn ComfyUI nicht läuft, ignorieren wir das leise
+        }
     }
 
     private boolean isSelected(int index) {

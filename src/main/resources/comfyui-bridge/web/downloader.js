@@ -310,6 +310,33 @@ const initializeExtension = async () => {
     addFAB(); addClassic(); addV2Action();
 };
 
+// NEU: Wir laden die API
+const setupListener = async () => {
+    try {
+        const { api } = await import("../../scripts/api.js");
+        api.addEventListener("kippster-refresh-ui", (event) => {
+            console.log("%c[Model-Downloader] Triggering UI Refresh!", "background: green; color: white;");
+            
+            if (app && app.refresh) {
+                app.refresh(); // Magischer Reload-Befehl
+                
+                // Kleines Popup für den User
+                const notify = (msg) => {
+                    if (app.ui?.dialog?.show) app.ui.dialog.show(msg);
+                    else if (window.comfyAPI?.dialog?.show) window.comfyAPI.dialog.show(msg);
+                    else alert(msg);
+                };
+                notify("✅ Downloads abgeschlossen! Modelle sind jetzt in ComfyUI verfügbar.");
+            }
+        });
+        console.log("[Model-Downloader] WebSocket Listener aktiv.");
+    } catch (e) {
+        console.error("[Model-Downloader] Konnte API nicht für Listener laden.", e);
+    }
+};
+
+setupListener();
+
 if (app) {
     app.registerExtension({ name: "TKI.ModelDownloader", async setup() { await initializeExtension(); } });
 } else if (document.readyState === "complete") {

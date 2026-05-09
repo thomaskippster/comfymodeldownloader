@@ -55,7 +55,6 @@ public class Main extends JFrame {
     private final IModelValidator modelValidator;
     private final de.tki.comfymodels.service.impl.RestBridgeService restBridge;
     private final de.tki.comfymodels.service.impl.ArchiveService archiveService;
-    private final de.tki.comfymodels.service.impl.ComfyUIBridgeClient bridgeClient;
 
     @Autowired
     private ConfigService configService;
@@ -90,8 +89,7 @@ public class Main extends JFrame {
     public Main(IModelAnalyzer analyzer, IDownloadManager downloadManager,
                 IWorkflowService workflowService, IModelSearchService searchService,
                 IModelValidator modelValidator, de.tki.comfymodels.service.impl.RestBridgeService restBridge,
-                de.tki.comfymodels.service.impl.ArchiveService archiveService,
-                de.tki.comfymodels.service.impl.ComfyUIBridgeClient bridgeClient) {
+                de.tki.comfymodels.service.impl.ArchiveService archiveService) {
         this.analyzer = analyzer;
         this.downloadManager = downloadManager;
         this.workflowService = workflowService;
@@ -99,7 +97,6 @@ public class Main extends JFrame {
         this.modelValidator = modelValidator;
         this.restBridge = restBridge;
         this.archiveService = archiveService;
-        this.bridgeClient = bridgeClient;
     }
 
     public void launch(String[] args) {
@@ -354,7 +351,7 @@ public class Main extends JFrame {
             try {
                 configService.unlock(pass);
                 restBridge.setApiToken(configService.getApiToken());
-                syncBridgeToken();
+                syncBridgeFiles(); // NEW: Automatically sync code & token on every unlock
                 
                 // NEW: Auto-import model list on first start or vault reset
                 if (configService.isVaultFresh()) {
@@ -769,7 +766,6 @@ public class Main extends JFrame {
                     () -> SwingUtilities.invokeLater(() -> {
                         downloadButton.setEnabled(true);
                         statusLabel.setText("Queue finished.");
-                        bridgeClient.notifyModelDownloaded();
                         if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
                     })
                 );
@@ -843,7 +839,7 @@ public class Main extends JFrame {
                 return;
             }
             configService.setComfyUIPath(selectedPath);
-            syncBridgeToken();
+            syncBridgeFiles();
             JOptionPane.showMessageDialog(dialog, "API Token synchronized successfully.");
         });
         
@@ -1447,6 +1443,36 @@ public class Main extends JFrame {
         JTable archiveTable = new JTable(archiveTableModel);
         archiveTable.setRowHeight(25);
         archiveTable.getColumnModel().getColumn(0).setMaxWidth(50);
+        
+        // Enable sorting with custom comparator for human-readable sizes
+        javax.swing.table.TableRowSorter<DefaultTableModel> archiveSorter = new javax.swing.table.TableRowSorter<>(archiveTableModel);
+        archiveSorter.setComparator(3, (s1, s2) -> Long.compare(parseSizeToBytes((String)s1), parseSizeToBytes((String)s2)));
+        archiveSorter.setSortable(0, false); // Disable sorting for checkbox column to allow "Select All"
+        archiveTable.setRowSorter(archiveSorter);
+
+        // Add "Select All" functionality to header
+        archiveTable.getTableHeader().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int viewIdx = archiveTable.columnAtPoint(e.getPoint());
+                if (viewIdx == -1) return;
+                int modelIdx = archiveTable.convertColumnIndexToModel(viewIdx);
+                if (modelIdx == 0) {
+                    boolean allSelected = true;
+                    for (int i = 0; i < archiveTableModel.getRowCount(); i++) {
+                        if (!(Boolean) archiveTableModel.getValueAt(i, 0)) {
+                            allSelected = false;
+                            break;
+                        }
+                    }
+                    boolean newValue = !allSelected;
+                    for (int i = 0; i < archiveTableModel.getRowCount(); i++) {
+                        archiveTableModel.setValueAt(newValue, i, 0);
+                    }
+                }
+            }
+        });
+
         JScrollPane archiveScroll = new JScrollPane(archiveTable);
         archivePanel.add(archiveScroll, BorderLayout.CENTER);
 
@@ -1494,6 +1520,36 @@ public class Main extends JFrame {
         JTable restoreTable = new JTable(restoreTableModel);
         restoreTable.setRowHeight(25);
         restoreTable.getColumnModel().getColumn(0).setMaxWidth(50);
+        
+        // Enable sorting with custom comparator for human-readable sizes
+        javax.swing.table.TableRowSorter<DefaultTableModel> restoreSorter = new javax.swing.table.TableRowSorter<>(restoreTableModel);
+        restoreSorter.setComparator(3, (s1, s2) -> Long.compare(parseSizeToBytes((String)s1), parseSizeToBytes((String)s2)));
+        restoreSorter.setSortable(0, false); // Disable sorting for checkbox column to allow "Select All"
+        restoreTable.setRowSorter(restoreSorter);
+
+        // Add "Select All" functionality to header
+        restoreTable.getTableHeader().addMouseListener(new MouseAdapter() {
+            @Override
+            public void mouseClicked(MouseEvent e) {
+                int viewIdx = restoreTable.columnAtPoint(e.getPoint());
+                if (viewIdx == -1) return;
+                int modelIdx = restoreTable.convertColumnIndexToModel(viewIdx);
+                if (modelIdx == 0) {
+                    boolean allSelected = true;
+                    for (int i = 0; i < restoreTableModel.getRowCount(); i++) {
+                        if (!(Boolean) restoreTableModel.getValueAt(i, 0)) {
+                            allSelected = false;
+                            break;
+                        }
+                    }
+                    boolean newValue = !allSelected;
+                    for (int i = 0; i < restoreTableModel.getRowCount(); i++) {
+                        restoreTableModel.setValueAt(newValue, i, 0);
+                    }
+                }
+            }
+        });
+
         JScrollPane restoreScroll = new JScrollPane(restoreTable);
         restorePanel.add(restoreScroll, BorderLayout.CENTER);
 
@@ -1611,6 +1667,7 @@ public class Main extends JFrame {
                 JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
                     "Operation Complete", JOptionPane.INFORMATION_MESSAGE);
                 analyzeJsonContent();
+                downloadManager.notifyComfyUI();
             });
         }).start();
 
@@ -1735,7 +1792,7 @@ public class Main extends JFrame {
         helpDialog.setVisible(true);
     }
 
-    private void syncBridgeToken() {
+    private void syncBridgeFiles() {
         String comfyPath = configService.getComfyUIPath();
         if (comfyPath == null || comfyPath.isEmpty()) return;
 
@@ -1747,8 +1804,19 @@ public class Main extends JFrame {
 
         Path targetDir = customNodesDir.resolve("comfyui-model-downloader");
         if (Files.exists(targetDir) && Files.isDirectory(targetDir)) {
-            writeExtensionConfig(targetDir.toFile());
-            System.out.println("Synchronized API token with ComfyUI bridge at: " + targetDir);
+            try {
+                // Always sync latest code files from resources to target
+                extractResource("/comfyui-bridge/__init__.py", targetDir.resolve("__init__.py").toFile());
+                Path webDir = targetDir.resolve("web");
+                Files.createDirectories(webDir);
+                extractResource("/comfyui-bridge/web/downloader.js", webDir.resolve("downloader.js").toFile());
+                
+                // Also update config
+                writeExtensionConfig(targetDir.toFile());
+                System.out.println("[Bridge-Sync] Successfully synchronized latest bridge code and token.");
+            } catch (IOException e) {
+                System.err.println("[Bridge-Sync] Failed to sync code: " + e.getMessage());
+            }
         }
     }
 

@@ -12,6 +12,11 @@ public interface IDownloadManager {
     boolean isPaused();
 
     /**
+     * Triggers a refresh signal to the ComfyUI bridge.
+     */
+    void notifyComfyUI();
+
+    /**
      * Returns a map of current statuses for each model in the queue.
      */
     java.util.Map<Integer, String> getQueueStatus();

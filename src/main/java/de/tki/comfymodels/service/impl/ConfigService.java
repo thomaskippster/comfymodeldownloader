@@ -154,6 +154,15 @@ public class ConfigService {
         save(); 
     }
 
+    public String getComfyUIUrl() { return settings.optString("comfyui_url", "http://127.0.0.1:8188"); }
+    public void setComfyUIUrl(String url) { 
+        if (url != null && !url.isEmpty()) {
+            String sanitized = url.endsWith("/") ? url.substring(0, url.length() - 1) : url;
+            settings.put("comfyui_url", sanitized); 
+            save(); 
+        }
+    }
+
     public String getApiToken() {
         String token = settings.optString("api_token", "");
         if (token.isEmpty() && isUnlocked()) {

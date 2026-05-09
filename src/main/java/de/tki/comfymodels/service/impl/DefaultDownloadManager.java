@@ -121,20 +121,68 @@ public class DefaultDownloadManager implements IDownloadManager {
     }
 
     // NEU: Benachrichtigt ComfyUI
-    private void notifyComfyUI() {
+    @Override
+    public void notifyComfyUI() {
+        String comfyUrl = configService.getComfyUIUrl();
+        if (sendRefreshPing(comfyUrl)) {
+            return;
+        }
+
+        // Auto-Discovery: If configured URL fails, search for ComfyUI on common ports
+        System.out.println("🔍 [Model-Downloader] ComfyUI unter " + comfyUrl + " nicht erreicht. Suche automatisch...");
+        String discoveredUrl = discoverComfyUrl();
+        if (discoveredUrl != null) {
+            System.out.println("✨ [Model-Downloader] ComfyUI automatisch gefunden unter: " + discoveredUrl);
+            configService.setComfyUIUrl(discoveredUrl);
+            sendRefreshPing(discoveredUrl);
+        } else {
+            System.err.println("❌ [Model-Downloader] ComfyUI konnte nicht automatisch gefunden werden. Bitte stelle sicher, dass es läuft.");
+        }
+    }
+
+    private boolean sendRefreshPing(String url) {
         try {
-            System.out.println("🚀 [Model-Downloader] Sende Refresh-Ping an ComfyUI (Port 8188)...");
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create("http://127.0.0.1:8188/kippster/model-downloaded"))
+                .uri(URI.create(url + "/kippster/model-downloaded"))
+                .timeout(java.time.Duration.ofSeconds(2))
                 .POST(HttpRequest.BodyPublishers.noBody())
                 .build();
             
-            // Synchron senden, damit wir sehen, was passiert
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            System.out.println("✅ [Model-Downloader] ComfyUI hat geantwortet mit Status: " + response.statusCode());
-        } catch (Exception e) {
-            System.err.println("❌ [Model-Downloader] Konnte ComfyUI nicht erreichen. Läuft es auf Port 8188? Fehler: " + e.getMessage());
+            if (response.statusCode() == 200) {
+                System.out.println("✅ [Model-Downloader] ComfyUI (" + url + ") erfolgreich benachrichtigt.");
+                return true;
+            }
+        } catch (Exception ignored) {}
+        return false;
+    }
+
+    private String discoverComfyUrl() {
+        // Scan typical ComfyUI ports, including common alternatives like 8000
+        int[] commonPorts = {8188, 8000, 8189, 8190, 3000, 8080};
+        for (int port : commonPorts) {
+            if (checkPort(port)) return "http://127.0.0.1:" + port;
         }
+
+        // Expanded range scan
+        for (int port = 8191; port <= 8199; port++) {
+            if (checkPort(port)) return "http://127.0.0.1:" + port;
+        }
+        return null;
+    }
+
+    private boolean checkPort(int port) {
+        String url = "http://127.0.0.1:" + port;
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(url + "/system_stats"))
+                .timeout(java.time.Duration.ofMillis(300))
+                .GET()
+                .build();
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            return response.statusCode() == 200 && response.body().contains("system");
+        } catch (Exception ignored) {}
+        return false;
     }
 
     private boolean isSelected(int index) {

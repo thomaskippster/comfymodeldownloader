@@ -19,7 +19,14 @@ Stop wasting time manually moving files! This tool automates your model manageme
 
 The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" button.
 
-### Automatic Installation (Recommended)
+### 🛠️ ComfyUI Manager (Recommended)
+1. Open the **ComfyUI Manager** in ComfyUI.
+2. Click on **Custom Nodes Manager**.
+3. Search for `Model Downloader Bridge`.
+4. Click **Install**.
+5. Restart ComfyUI.
+
+### Automatic Installation (Standalone)
 1.  Open the Downloader App.
 2.  Go to **Settings** -> **ComfyUI Bridge...**.
 3.  Select your ComfyUI main directory and click **Start Installation**.

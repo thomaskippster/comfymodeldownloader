@@ -26,17 +26,50 @@ const initializeExtension = async () => {
             };
             showToast("🔄 Lade Node-Definitionen neu...");
 
-            // WICHTIG: Das ist der Gamechanger! Löscht den Frontend-Cache von ComfyUI.
-            // Ohne das hier lädt ComfyUI immer die alten Modell-Listen aus dem Browser-RAM.
+            // 🔥 DER GAMECHANGER: Killt den Frontend-Cache von ComfyUI!
             api.nodeDefs = null;
 
             // Gib dem Windows-Dateisystem kurz Zeit, die kopierten/verschobenen Dateien zu registrieren
             await new Promise(r => setTimeout(r, 800));
 
-            // Ruft die offizielle ComfyUI Refresh-Funktion auf (das entspricht exakt dem Klick auf "Refresh" im Menü)
-            // app.refresh() zieht sich automatisch die neuen nodeDefs vom Server und "heilt" fehlerhafte Nodes.
+            // 1. Hole frische Definitionen vom Server (triggert jetzt wirklich /object_info)
+            console.log("[Model-Downloader] Re-fetching node definitions from server...");
+            const nodeDefs = await api.getNodeDefs();
+            
+            // 2. Falls ComfyUI-Manager installiert ist, auch dessen Custom Nodes aktualisieren
+            if (api.getCustomNodes) await api.getCustomNodes();
+
+            // 3. Ruft die offizielle ComfyUI Refresh-Funktion auf (aktualisiert Sidebars, etc.)
             if (app.refresh) {
                 await app.refresh();
+            }
+
+            // 4. Jede Node auf dem Canvas zwingen, ihre Widgets neu zu evaluieren (Deep-Update)
+            if (app.graph && app.graph._nodes) {
+                for (const node of app.graph._nodes) {
+                    const def = nodeDefs[node.type];
+                    if (def?.input?.required) {
+                        for (const widgetName in def.input.required) {
+                            const inputDef = def.input.required[widgetName];
+                            if (Array.isArray(inputDef[0])) { // Dropdown / Combo
+                                const newValues = inputDef[0];
+                                const widget = node.widgets?.find(w => w.name === widgetName);
+                                if (widget && widget.type === "combo") {
+                                    widget.options.values = newValues;
+                                    // Heilung bei Modell-Wiederherstellung
+                                    if (newValues.includes(widget.value)) {
+                                        if (node.color === "#322" || node.color === "#a22") {
+                                            node.color = "";
+                                            node.bgcolor = "";
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (node.onRefresh) node.onRefresh();
+                }
+                if (app.graph.refreshNodes) app.graph.refreshNodes();
             }
 
             // Canvas zwingen, sich neu zu zeichnen

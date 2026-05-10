@@ -16,7 +16,6 @@ const initializeExtension = async () => {
         console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Erzwinge harten UI-Refresh...", "background: #ff0000; color: #fff; font-size: 14px;");
         
         try {
-            // A. Benutzer informieren (kleiner Toast/Notification)
             const showToast = (text) => {
                 const toast = document.createElement("div");
                 toast.style = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(255,204,0,0.9); color:black; padding:10px 20px; border-radius:5px; z-index:10001; font-weight:bold; font-family:sans-serif; pointer-events:none; transition: opacity 0.5s;";
@@ -24,30 +23,39 @@ const initializeExtension = async () => {
                 document.body.appendChild(toast);
                 setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => document.body.removeChild(toast), 500); }, 3000);
             };
-            showToast("🔄 Synchronisiere Modelle...");
+            showToast("🔄 Erzwinge Refresh der Node-Definitionen...");
 
-            // B. Offiziellen ComfyUI Refresh-Endpoint triggern
-            console.log("[Model-Downloader] Trigger /refresh_models...");
-            await fetch('/refresh_models', { method: 'POST' });
+            // A. Manager-spezifische Endpunkte triggern falls vorhanden
+            try { await fetch('/refresh_models', { method: 'POST' }); } catch(e) {}
+            try { await fetch('/manager/refresh_node_definitions', { method: 'POST' }); } catch(e) {}
 
-            // C. Großzügige Pause für das Dateisystem und Backend-Indizierung
+            // B. Pause für Backend-Stabilität
             await new Promise(r => setTimeout(r, 1500));
 
-            // D. Node-Definitionen neu laden (Bypass Cache falls möglich)
-            console.log("[Model-Downloader] Re-fetching Node Definitions...");
+            // C. HARTER UI REFRESH (Der Kern-Befehl der das "Refresh Node Definitions" Button imitiert)
+            console.log("[Model-Downloader] Executing Deep Refresh...");
+            
+            // 1. Hole frische Definitionen vom Server (triggert /object_info)
             const nodeDefs = await api.getNodeDefs();
             
-            let healedCount = 0;
-            let archivedCount = 0;
+            // 2. Aktualisiere die Custom Nodes Liste
+            if (api.getCustomNodes) await api.getCustomNodes();
             
-            // E. Nodes auf dem Canvas manuell aktualisieren
+            // 3. Wenn ComfyUI V2 (app.refresh existiert)
+            if (app.refresh) {
+                await app.refresh();
+            }
+
+            let healedCount = 0;
+            
+            // 4. Jede Node auf dem Canvas zwingen, ihre Widgets neu zu evaluieren
             if (app.graph && app.graph._nodes) {
                 for (const node of app.graph._nodes) {
                     const def = nodeDefs[node.type];
                     if (def?.input?.required) {
                         for (const widgetName in def.input.required) {
                             const inputDef = def.input.required[widgetName];
-                            if (Array.isArray(inputDef[0])) { // Dropdown
+                            if (Array.isArray(inputDef[0])) { // Dropdown / Combo
                                 const newValues = inputDef[0];
                                 const widget = node.widgets?.find(w => w.name === widgetName);
                                 
@@ -55,40 +63,37 @@ const initializeExtension = async () => {
                                     const oldValue = widget.value;
                                     widget.options.values = newValues;
                                     
-                                    // Check ob das Modell jetzt da ist oder verschwunden ist
+                                    // Validierung & Heilung
                                     if (newValues.includes(oldValue)) {
-                                        // Modell vorhanden (oder wiederhergestellt)
                                         if (node.color === "#322" || node.color === "#a22") {
                                             node.color = "";
                                             node.bgcolor = "";
                                             healedCount++;
                                         }
                                     } else if (oldValue && oldValue !== "None" && !newValues.includes(oldValue)) {
-                                        // Modell fehlt (oder archiviert) -> rot markieren
                                         node.color = "#322";
                                         node.bgcolor = "#a22";
-                                        archivedCount++;
                                     }
                                 }
                             }
                         }
                     }
+                    // WICHTIG: Trigger node internal refresh
                     if (node.onRefresh) node.onRefresh();
                 }
+                
+                // 5. Den Graphen zwingen, die Nodes neu zu zeichnen (entspricht graph.refreshNodes)
+                if (app.graph.refreshNodes) app.graph.refreshNodes();
             }
 
-            // F. ComfyUI Standard-Refresh & Canvas Update
-            if (app.refresh) await app.refresh();
+            // F. Canvas neu zeichnen
             app.graph.setDirtyCanvas(true, true);
             
-            console.log(`[Model-Downloader] Sync fertig. Healed: ${healedCount}, Archived: ${archivedCount}`);
+            console.log(`[Model-Downloader] Deep-Sync abgeschlossen. Healed: ${healedCount}`);
             
-            let finalMsg = "✅ Synchronisation abgeschlossen!";
-            if (healedCount > 0) finalMsg += `\n- ${healedCount} Modelle jetzt verfügbar.`;
-            if (archivedCount > 0) finalMsg += `\n- ${archivedCount} Modelle ins Archiv verschoben.`;
-            
-            if (app.ui?.dialog?.show) app.ui.dialog.show(finalMsg);
-            else alert(finalMsg);
+            if (app.ui?.dialog?.show) {
+                app.ui.dialog.show("✅ Node-Definitionen wurden erzwungen aktualisiert!\nAlle Modell-Listen sind nun auf dem neuesten Stand.");
+            }
 
         } catch (e) {
             console.error("[Model-Downloader] Fehler beim erzwungenen Refresh:", e);
@@ -112,10 +117,7 @@ const initializeExtension = async () => {
         const fab = document.createElement("div");
         fab.id = "tki-downloader-fab";
         fab.innerHTML = "🚀";
-        fab.title = "An Model Downloader senden";
         fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(0,0,0,0.5); border: 2px solid white; transition: transform 0.2s;";
-        fab.onmouseover = () => fab.style.transform = "scale(1.1)";
-        fab.onmouseout = () => fab.style.transform = "scale(1.0)";
         fab.onclick = async () => {
             if (!app?.graph) return;
             try {

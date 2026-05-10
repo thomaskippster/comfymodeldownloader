@@ -16,26 +16,38 @@ const initializeExtension = async () => {
         console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Erzwinge harten UI-Refresh...", "background: #ff0000; color: #fff; font-size: 14px;");
         
         try {
-            // A. Offiziellen ComfyUI Refresh-Endpoint triggern (wie der Button im Manager)
+            // A. Benutzer informieren (kleiner Toast/Notification)
+            const showToast = (text) => {
+                const toast = document.createElement("div");
+                toast.style = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(255,204,0,0.9); color:black; padding:10px 20px; border-radius:5px; z-index:10001; font-weight:bold; font-family:sans-serif; pointer-events:none; transition: opacity 0.5s;";
+                toast.textContent = text;
+                document.body.appendChild(toast);
+                setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => document.body.removeChild(toast), 500); }, 3000);
+            };
+            showToast("🔄 Synchronisiere Modelle...");
+
+            // B. Offiziellen ComfyUI Refresh-Endpoint triggern
             console.log("[Model-Downloader] Trigger /refresh_models...");
             await fetch('/refresh_models', { method: 'POST' });
 
-            // B. Kurze Pause für das Backend
-            await new Promise(r => setTimeout(r, 1000));
+            // C. Großzügige Pause für das Dateisystem und Backend-Indizierung
+            await new Promise(r => setTimeout(r, 1500));
 
-            // C. Node-Definitionen neu laden (Zwingt den Browser die neuen Listen anzufragen)
+            // D. Node-Definitionen neu laden (Bypass Cache falls möglich)
             console.log("[Model-Downloader] Re-fetching Node Definitions...");
             const nodeDefs = await api.getNodeDefs();
-            let updatedCount = 0;
             
-            // D. Nodes auf dem Canvas manuell aktualisieren
+            let healedCount = 0;
+            let archivedCount = 0;
+            
+            // E. Nodes auf dem Canvas manuell aktualisieren
             if (app.graph && app.graph._nodes) {
                 for (const node of app.graph._nodes) {
                     const def = nodeDefs[node.type];
                     if (def?.input?.required) {
                         for (const widgetName in def.input.required) {
                             const inputDef = def.input.required[widgetName];
-                            if (Array.isArray(inputDef[0])) { // Es ist ein Dropdown (Combo)
+                            if (Array.isArray(inputDef[0])) { // Dropdown
                                 const newValues = inputDef[0];
                                 const widget = node.widgets?.find(w => w.name === widgetName);
                                 
@@ -43,17 +55,19 @@ const initializeExtension = async () => {
                                     const oldValue = widget.value;
                                     widget.options.values = newValues;
                                     
-                                    // Check ob das ehemals rote Modell jetzt da ist
+                                    // Check ob das Modell jetzt da ist oder verschwunden ist
                                     if (newValues.includes(oldValue)) {
+                                        // Modell vorhanden (oder wiederhergestellt)
                                         if (node.color === "#322" || node.color === "#a22") {
                                             node.color = "";
                                             node.bgcolor = "";
-                                            updatedCount++;
+                                            healedCount++;
                                         }
                                     } else if (oldValue && oldValue !== "None" && !newValues.includes(oldValue)) {
-                                        // Modell fehlt immer noch -> rot markieren
+                                        // Modell fehlt (oder archiviert) -> rot markieren
                                         node.color = "#322";
                                         node.bgcolor = "#a22";
+                                        archivedCount++;
                                     }
                                 }
                             }
@@ -63,20 +77,18 @@ const initializeExtension = async () => {
                 }
             }
 
-            // E. ComfyUI Standard-Refresh (lädt Sidebars etc. neu)
+            // F. ComfyUI Standard-Refresh & Canvas Update
             if (app.refresh) await app.refresh();
-            
-            // F. Canvas neu zeichnen
             app.graph.setDirtyCanvas(true, true);
             
-            console.log(`[Model-Downloader] Sync abgeschlossen. ${updatedCount} Nodes aktualisiert.`);
+            console.log(`[Model-Downloader] Sync fertig. Healed: ${healedCount}, Archived: ${archivedCount}`);
             
-            const msg = updatedCount > 0 
-                ? `✅ Deep-Sync abgeschlossen!\n${updatedCount} Nodes wurden aktualisiert.`
-                : "✅ Synchronisation abgeschlossen! Die Modell-Listen sind aktuell.";
+            let finalMsg = "✅ Synchronisation abgeschlossen!";
+            if (healedCount > 0) finalMsg += `\n- ${healedCount} Modelle jetzt verfügbar.`;
+            if (archivedCount > 0) finalMsg += `\n- ${archivedCount} Modelle ins Archiv verschoben.`;
             
-            if (app.ui?.dialog?.show) app.ui.dialog.show(msg);
-            else alert(msg);
+            if (app.ui?.dialog?.show) app.ui.dialog.show(finalMsg);
+            else alert(finalMsg);
 
         } catch (e) {
             console.error("[Model-Downloader] Fehler beim erzwungenen Refresh:", e);
@@ -96,31 +108,30 @@ const initializeExtension = async () => {
     await loadConfig();
 
     const addUI = () => {
-        if (!document.getElementById("tki-downloader-fab")) {
-            const fab = document.createElement("div");
-            fab.id = "tki-downloader-fab";
-            fab.innerHTML = "🚀";
-            fab.title = "An Model Downloader senden";
-            fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(0,0,0,0.5); border: 2px solid white; transition: transform 0.2s;";
-            fab.onmouseover = () => fab.style.transform = "scale(1.1)";
-            fab.onmouseout = () => fab.style.transform = "scale(1.0)";
-            fab.onclick = async () => {
-                if (!app?.graph) return;
-                try {
-                    const response = await fetch("http://127.0.0.1:12345/import", {
-                        method: "POST", mode: "cors",
-                        headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
-                        body: JSON.stringify(app.graph.serialize())
-                    });
-                    if (response.ok) {
-                        if (app.ui?.dialog?.show) app.ui.dialog.show("🚀 Workflow an Downloader gesendet!");
-                    }
-                } catch (e) {
-                    alert("❌ Downloader App nicht erreichbar!");
+        if (document.getElementById("tki-downloader-fab")) return;
+        const fab = document.createElement("div");
+        fab.id = "tki-downloader-fab";
+        fab.innerHTML = "🚀";
+        fab.title = "An Model Downloader senden";
+        fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(0,0,0,0.5); border: 2px solid white; transition: transform 0.2s;";
+        fab.onmouseover = () => fab.style.transform = "scale(1.1)";
+        fab.onmouseout = () => fab.style.transform = "scale(1.0)";
+        fab.onclick = async () => {
+            if (!app?.graph) return;
+            try {
+                const response = await fetch("http://127.0.0.1:12345/import", {
+                    method: "POST", mode: "cors",
+                    headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
+                    body: JSON.stringify(app.graph.serialize())
+                });
+                if (response.ok) {
+                    if (app.ui?.dialog?.show) app.ui.dialog.show("🚀 Workflow an Downloader gesendet!");
                 }
-            };
-            document.body.appendChild(fab);
-        }
+            } catch (e) {
+                alert("❌ Downloader App nicht erreichbar!");
+            }
+        };
+        document.body.appendChild(fab);
     };
     addUI();
 };

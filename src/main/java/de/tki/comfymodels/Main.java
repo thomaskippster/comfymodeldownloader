@@ -748,6 +748,9 @@ public class Main extends JFrame {
                 }
             }
             
+            // After all restores, notify ComfyUI
+            downloadManager.notifyComfyUI();
+            
             // After restores, start the actual download manager for the remaining models
             SwingUtilities.invokeLater(() -> {
                 // Update selected array (some might have been unselected by restore)
@@ -1664,10 +1667,11 @@ public class Main extends JFrame {
                 for (int r : processedRowIndices) sourceModel.removeRow(r);
                 for (Object[] rowData : rowsToMove) targetModel.addRow(rowData);
                 
-                JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
-                    "Operation Complete", JOptionPane.INFORMATION_MESSAGE);
                 analyzeJsonContent();
                 downloadManager.notifyComfyUI();
+                
+                JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
+                    "Operation Complete", JOptionPane.INFORMATION_MESSAGE);
             });
         }).start();
 

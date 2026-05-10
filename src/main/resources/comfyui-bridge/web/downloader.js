@@ -3,6 +3,7 @@ let app = null;
 let api = null;
 
 const initializeExtension = async () => {
+    // 1. Try to find ComfyUI app and api objects
     const paths = ["../../scripts/app.js", "/scripts/app.js", "../../../scripts/app.js"];
     const apiPaths = ["../../scripts/api.js", "/scripts/api.js", "../../../scripts/api.js"];
     for (const path of paths) { try { const mod = await import(path); if (mod.app) { app = mod.app; break; } } catch (e) {} }
@@ -10,40 +11,43 @@ const initializeExtension = async () => {
 
     if (!app || !api) { setTimeout(initializeExtension, 2000); return; }
 
+    // 2. Setup WebSocket Listener for Deep-Sync
     api.addEventListener("kippster-refresh-ui", async (event) => {
         console.log("%c🔥 [Model-Downloader] SIGNAL EMPFANGEN! Starte Deep-Node-Update...", "background: #ff0000; color: #fff; font-size: 14px;");
         
         try {
-            // 1. Backend Zeit zum Scannen geben
-            await new Promise(r => setTimeout(r, 800));
+            // Backend Zeit zum Scannen geben (wichtig für Windows HDDs)
+            await new Promise(r => setTimeout(r, 1000));
 
-            // 2. Definitionen neu laden (Zwingt den Browser die neuesten Modell-Listen zu kennen)
+            // Definitionen neu laden (Zwingt den Browser die neuesten Modell-Listen vom Backend anzufragen)
             const nodeDefs = await api.getNodeDefs();
+            let updatedCount = 0;
             
-            // 3. Bestehende Nodes auf dem Canvas aktualisieren
+            // Bestehende Nodes auf dem Canvas aktualisieren
             if (app.graph && app.graph._nodes) {
-                console.log("[Model-Downloader] Aktualisiere Dropdowns in " + app.graph._nodes.length + " Nodes...");
                 for (const node of app.graph._nodes) {
                     const def = nodeDefs[node.type];
                     if (def && def.input && def.input.required) {
                         for (const widgetName in def.input.required) {
                             const inputDef = def.input.required[widgetName];
-                            // Falls es ein Dropdown (Combo) ist
+                            // Falls es ein Dropdown (Combo) ist (Array an Position 0)
                             if (Array.isArray(inputDef[0])) {
                                 const newValues = inputDef[0];
                                 const widget = node.widgets?.find(w => w.name === widgetName);
+                                
                                 if (widget && widget.type === "combo") {
+                                    const oldValue = widget.value;
                                     widget.options.values = newValues;
                                     
-                                    // Validierung: Ist das aktuell gewählte Modell noch da?
-                                    if (newValues.includes(widget.value)) {
-                                        // Modell vorhanden -> Node "heilen" (Farbe zurücksetzen)
+                                    // Validierung: Ist das aktuell gewählte Modell jetzt verfügbar?
+                                    if (newValues.includes(oldValue)) {
                                         if (node.color === "#322" || node.color === "#a22") {
                                             node.color = "";
                                             node.bgcolor = "";
+                                            updatedCount++;
                                         }
-                                    } else if (widget.value && widget.value !== "None") {
-                                        // Modell fehlt -> Node rot markieren (ComfyUI Standard für Fehler)
+                                    } else if (oldValue && oldValue !== "None" && !newValues.includes(oldValue)) {
+                                        // Markiere fehlende Modelle rot
                                         node.color = "#322";
                                         node.bgcolor = "#a22";
                                     }
@@ -58,15 +62,21 @@ const initializeExtension = async () => {
             if (app.refresh) await app.refresh();
             app.graph.setDirtyCanvas(true, true);
             
-            if (app.ui?.dialog?.show) {
-                app.ui.dialog.show("✅ Synchronisation abgeschlossen! Die Modell-Listen wurden aktualisiert.");
-            }
+            console.log(`[Model-Downloader] Deep-Sync fertig. ${updatedCount} Nodes geheilt.`);
+            
+            const msg = updatedCount > 0 
+                ? `✅ Synchronisation abgeschlossen!\n${updatedCount} Nodes wurden aktualisiert und sind jetzt bereit.`
+                : "✅ Synchronisation abgeschlossen! Die Modell-Listen sind auf dem neuesten Stand.";
+            
+            if (app.ui?.dialog?.show) app.ui.dialog.show(msg);
+            else alert(msg);
 
         } catch (e) {
             console.error("[Model-Downloader] Fehler beim Deep-Node-Update:", e);
         }
     });
 
+    // 3. Load Token and setup UI
     let apiToken = null;
     const loadConfig = async () => {
         try {
@@ -83,16 +93,24 @@ const initializeExtension = async () => {
             const fab = document.createElement("div");
             fab.id = "tki-downloader-fab";
             fab.innerHTML = "🚀";
-            fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(255,204,0,0.5); border: 2px solid white;";
+            fab.title = "An Model Downloader senden";
+            fab.style = "position:fixed; bottom:30px; right:30px; z-index:10000; cursor:pointer; font-size:30px; background:#ffcc00; border-radius:50%; width:60px; height:60px; display:flex; align-items:center; justify-content:center; box-shadow:0 0 20px rgba(0,0,0,0.5); border: 2px solid white; transition: transform 0.2s;";
+            fab.onmouseover = () => fab.style.transform = "scale(1.1)";
+            fab.onmouseout = () => fab.style.transform = "scale(1.0)";
             fab.onclick = async () => {
                 if (!app?.graph) return;
                 try {
-                    await fetch("http://127.0.0.1:12345/import", {
+                    const response = await fetch("http://127.0.0.1:12345/import", {
                         method: "POST", mode: "cors",
                         headers: { "Content-Type": "application/json", "Authorization": `Bearer ${apiToken}` },
                         body: JSON.stringify(app.graph.serialize())
                     });
-                } catch (e) {}
+                    if (response.ok) {
+                        if (app.ui?.dialog?.show) app.ui.dialog.show("🚀 Workflow an Downloader gesendet!");
+                    }
+                } catch (e) {
+                    alert("❌ Downloader App nicht erreichbar! Läuft sie?");
+                }
             };
             document.body.appendChild(fab);
         }

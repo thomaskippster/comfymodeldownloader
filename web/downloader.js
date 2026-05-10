@@ -3,7 +3,7 @@ let app = null;
 let api = null;
 
 const initializeExtension = async () => {
-    // 1. Try to find ComfyUI app and api objects
+    // 1. Suche nach ComfyUI App/API
     const paths = ["../../scripts/app.js", "/scripts/app.js", "../../../scripts/app.js"];
     const apiPaths = ["../../scripts/api.js", "/scripts/api.js", "../../../scripts/api.js"];
     for (const path of paths) { try { const mod = await import(path); if (mod.app) { app = mod.app; break; } } catch (e) {} }
@@ -11,27 +11,31 @@ const initializeExtension = async () => {
 
     if (!app || !api) { setTimeout(initializeExtension, 2000); return; }
 
-    // 2. Setup WebSocket Listener for Deep-Sync
+    // 2. WebSocket Listener für den "Sync"-Trigger
     api.addEventListener("kippster-refresh-ui", async (event) => {
-        console.log("%c🔥 [Model-Downloader] SIGNAL EMPFANGEN! Starte Deep-Node-Update...", "background: #ff0000; color: #fff; font-size: 14px;");
+        console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Erzwinge harten UI-Refresh...", "background: #ff0000; color: #fff; font-size: 14px;");
         
         try {
-            // Backend Zeit zum Scannen geben (wichtig für Windows HDDs)
+            // A. Offiziellen ComfyUI Refresh-Endpoint triggern (wie der Button im Manager)
+            console.log("[Model-Downloader] Trigger /refresh_models...");
+            await fetch('/refresh_models', { method: 'POST' });
+
+            // B. Kurze Pause für das Backend
             await new Promise(r => setTimeout(r, 1000));
 
-            // Definitionen neu laden (Zwingt den Browser die neuesten Modell-Listen vom Backend anzufragen)
+            // C. Node-Definitionen neu laden (Zwingt den Browser die neuen Listen anzufragen)
+            console.log("[Model-Downloader] Re-fetching Node Definitions...");
             const nodeDefs = await api.getNodeDefs();
             let updatedCount = 0;
             
-            // Bestehende Nodes auf dem Canvas aktualisieren
+            // D. Nodes auf dem Canvas manuell aktualisieren
             if (app.graph && app.graph._nodes) {
                 for (const node of app.graph._nodes) {
                     const def = nodeDefs[node.type];
-                    if (def && def.input && def.input.required) {
+                    if (def?.input?.required) {
                         for (const widgetName in def.input.required) {
                             const inputDef = def.input.required[widgetName];
-                            // Falls es ein Dropdown (Combo) ist (Array an Position 0)
-                            if (Array.isArray(inputDef[0])) {
+                            if (Array.isArray(inputDef[0])) { // Es ist ein Dropdown (Combo)
                                 const newValues = inputDef[0];
                                 const widget = node.widgets?.find(w => w.name === widgetName);
                                 
@@ -39,7 +43,7 @@ const initializeExtension = async () => {
                                     const oldValue = widget.value;
                                     widget.options.values = newValues;
                                     
-                                    // Validierung: Ist das aktuell gewählte Modell jetzt verfügbar?
+                                    // Check ob das ehemals rote Modell jetzt da ist
                                     if (newValues.includes(oldValue)) {
                                         if (node.color === "#322" || node.color === "#a22") {
                                             node.color = "";
@@ -47,7 +51,7 @@ const initializeExtension = async () => {
                                             updatedCount++;
                                         }
                                     } else if (oldValue && oldValue !== "None" && !newValues.includes(oldValue)) {
-                                        // Markiere fehlende Modelle rot
+                                        // Modell fehlt immer noch -> rot markieren
                                         node.color = "#322";
                                         node.bgcolor = "#a22";
                                     }
@@ -59,24 +63,27 @@ const initializeExtension = async () => {
                 }
             }
 
+            // E. ComfyUI Standard-Refresh (lädt Sidebars etc. neu)
             if (app.refresh) await app.refresh();
+            
+            // F. Canvas neu zeichnen
             app.graph.setDirtyCanvas(true, true);
             
-            console.log(`[Model-Downloader] Deep-Sync fertig. ${updatedCount} Nodes geheilt.`);
+            console.log(`[Model-Downloader] Sync abgeschlossen. ${updatedCount} Nodes aktualisiert.`);
             
             const msg = updatedCount > 0 
-                ? `✅ Synchronisation abgeschlossen!\n${updatedCount} Nodes wurden aktualisiert und sind jetzt bereit.`
-                : "✅ Synchronisation abgeschlossen! Die Modell-Listen sind auf dem neuesten Stand.";
+                ? `✅ Deep-Sync abgeschlossen!\n${updatedCount} Nodes wurden aktualisiert.`
+                : "✅ Synchronisation abgeschlossen! Die Modell-Listen sind aktuell.";
             
             if (app.ui?.dialog?.show) app.ui.dialog.show(msg);
             else alert(msg);
 
         } catch (e) {
-            console.error("[Model-Downloader] Fehler beim Deep-Node-Update:", e);
+            console.error("[Model-Downloader] Fehler beim erzwungenen Refresh:", e);
         }
     });
 
-    // 3. Load Token and setup UI
+    // 3. Token & FAB UI
     let apiToken = null;
     const loadConfig = async () => {
         try {
@@ -109,7 +116,7 @@ const initializeExtension = async () => {
                         if (app.ui?.dialog?.show) app.ui.dialog.show("🚀 Workflow an Downloader gesendet!");
                     }
                 } catch (e) {
-                    alert("❌ Downloader App nicht erreichbar! Läuft sie?");
+                    alert("❌ Downloader App nicht erreichbar!");
                 }
             };
             document.body.appendChild(fab);

@@ -13,9 +13,10 @@ const initializeExtension = async () => {
 
     // 2. WebSocket Listener für den "Sync"-Trigger
     api.addEventListener("kippster-refresh-ui", async (event) => {
-        console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Erzwinge harten UI-Refresh...", "background: #ff0000; color: #fff; font-size: 14px;");
-        
+        console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Starte echten UI-Refresh...", "background: #ff0000; color: #fff; font-size: 14px;");
+
         try {
+            // Zeige Feedback an
             const showToast = (text) => {
                 const toast = document.createElement("div");
                 toast.style = "position:fixed; top:20px; left:50%; transform:translateX(-50%); background:rgba(255,204,0,0.9); color:black; padding:10px 20px; border-radius:5px; z-index:10001; font-weight:bold; font-family:sans-serif; pointer-events:none; transition: opacity 0.5s;";
@@ -23,77 +24,24 @@ const initializeExtension = async () => {
                 document.body.appendChild(toast);
                 setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => document.body.removeChild(toast), 500); }, 3000);
             };
-            showToast("🔄 Erzwinge Refresh der Node-Definitionen...");
+            showToast("🔄 Lade Node-Definitionen neu...");
 
-            // A. Manager-spezifische Endpunkte triggern falls vorhanden
-            try { await fetch('/refresh_models', { method: 'POST' }); } catch(e) {}
-            try { await fetch('/manager/refresh_node_definitions', { method: 'POST' }); } catch(e) {}
+            // WICHTIG: Das ist der Gamechanger! Löscht den Frontend-Cache von ComfyUI.
+            // Ohne das hier lädt ComfyUI immer die alten Modell-Listen aus dem Browser-RAM.
+            api.nodeDefs = null;
 
-            // B. Pause für Backend-Stabilität
-            await new Promise(r => setTimeout(r, 1500));
+            // Gib dem Windows-Dateisystem kurz Zeit, die kopierten/verschobenen Dateien zu registrieren
+            await new Promise(r => setTimeout(r, 800));
 
-            // C. HARTER UI REFRESH (Der Kern-Befehl der das "Refresh Node Definitions" Button imitiert)
-            console.log("[Model-Downloader] Executing Deep Refresh...");
-            
-            // 1. Hole frische Definitionen vom Server (triggert /object_info)
-            const nodeDefs = await api.getNodeDefs();
-            
-            // 2. Aktualisiere die Custom Nodes Liste
-            if (api.getCustomNodes) await api.getCustomNodes();
-            
-            // 3. Wenn ComfyUI V2 (app.refresh existiert)
+            // Ruft die offizielle ComfyUI Refresh-Funktion auf (das entspricht exakt dem Klick auf "Refresh" im Menü)
+            // app.refresh() zieht sich automatisch die neuen nodeDefs vom Server und "heilt" fehlerhafte Nodes.
             if (app.refresh) {
                 await app.refresh();
             }
 
-            let healedCount = 0;
-            
-            // 4. Jede Node auf dem Canvas zwingen, ihre Widgets neu zu evaluieren
-            if (app.graph && app.graph._nodes) {
-                for (const node of app.graph._nodes) {
-                    const def = nodeDefs[node.type];
-                    if (def?.input?.required) {
-                        for (const widgetName in def.input.required) {
-                            const inputDef = def.input.required[widgetName];
-                            if (Array.isArray(inputDef[0])) { // Dropdown / Combo
-                                const newValues = inputDef[0];
-                                const widget = node.widgets?.find(w => w.name === widgetName);
-                                
-                                if (widget && widget.type === "combo") {
-                                    const oldValue = widget.value;
-                                    widget.options.values = newValues;
-                                    
-                                    // Validierung & Heilung
-                                    if (newValues.includes(oldValue)) {
-                                        if (node.color === "#322" || node.color === "#a22") {
-                                            node.color = "";
-                                            node.bgcolor = "";
-                                            healedCount++;
-                                        }
-                                    } else if (oldValue && oldValue !== "None" && !newValues.includes(oldValue)) {
-                                        node.color = "#322";
-                                        node.bgcolor = "#a22";
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    // WICHTIG: Trigger node internal refresh
-                    if (node.onRefresh) node.onRefresh();
-                }
-                
-                // 5. Den Graphen zwingen, die Nodes neu zu zeichnen (entspricht graph.refreshNodes)
-                if (app.graph.refreshNodes) app.graph.refreshNodes();
-            }
-
-            // F. Canvas neu zeichnen
+            // Canvas zwingen, sich neu zu zeichnen
             app.graph.setDirtyCanvas(true, true);
-            
-            console.log(`[Model-Downloader] Deep-Sync abgeschlossen. Healed: ${healedCount}`);
-            
-            if (app.ui?.dialog?.show) {
-                app.ui.dialog.show("✅ Node-Definitionen wurden erzwungen aktualisiert!\nAlle Modell-Listen sind nun auf dem neuesten Stand.");
-            }
+            console.log("[Model-Downloader] Sync erfolgreich abgeschlossen.");
 
         } catch (e) {
             console.error("[Model-Downloader] Fehler beim erzwungenen Refresh:", e);

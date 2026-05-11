@@ -113,7 +113,6 @@ public class DefaultDownloadManager implements IDownloadManager {
                 
             } finally {
                 if (finishedCalled.compareAndSet(false, true)) {
-                    notifyComfyUI(); // NEU: Ping abfeuern
                     onFinished.run();
                 }
             }

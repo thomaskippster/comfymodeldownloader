@@ -27,12 +27,15 @@ const initializeExtension = async () => {
             // 1. Frontend-Cache explizit leeren
             api.nodeDefs = null;
 
-            // 2. Den originalen Refresh-Befehl von ComfyUI ausführen (löst /object_info aus)
-            if (app.refresh) {
+            // 2. Den exakten Refresh-Befehl ausführen, den auch der "Refresh"-Button im Sidebar-Menü nutzt
+            // Dieser Befehl triggert sowohl den Backend-Scan als auch das Re-Registering der Nodes im Frontend.
+            if (app.refreshNodeDefinitions) {
+                await app.refreshNodeDefinitions();
+            } else if (app.refresh) {
                 await app.refresh();
             }
 
-            // 3. Zusätzlicher Force: Node Definitions manuell neu laden
+            // 3. Zusätzlicher Force: Sicherstellen dass wir die neuesten Daten haben
             const nodeDefs = await api.getNodeDefs();
             
             showToast("✨ Heilung der Nodes läuft...");

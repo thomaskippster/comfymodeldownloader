@@ -12,7 +12,7 @@ const initializeExtension = async () => {
 
     api.addEventListener("kippster-refresh-ui", async (event) => {
         console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Starte Refresh-Sequenz...", "background: #ff0000; color: #fff; font-size: 14px;");
-        
+
         try {
             const showToast = (text) => {
                 const toast = document.createElement("div");
@@ -21,24 +21,19 @@ const initializeExtension = async () => {
                 document.body.appendChild(toast);
                 setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => document.body.removeChild(toast), 500); }, 3000);
             };
-            
-            showToast("🔄 Sync: Warte auf Windows-Dateisystem...");
 
-            // WICHTIG: 2 Sekunden warten!
-            // Windows braucht einen Moment, um die Ordner-Indizes nach dem Verschieben/Entpacken zu aktualisieren.
-            await new Promise(r => setTimeout(r, 2000));
-            
             showToast("🔄 Führe 'Refresh Node Definitions' aus...");
-            
+
             // ComfyUI Frontend-Cache leeren
             api.nodeDefs = null;
 
-            // Den originalen Refresh-Befehl von ComfyUI ausführen (exakt wie der manuelle Klick)
+            // Den originalen Refresh-Befehl von ComfyUI ausführen
             if (app.refresh) {
-                await app.refresh();
+                await app.refresh(); // Wichtig: Erst abwarten, bis das Backend die neuen Daten gesendet hat!
             }
 
-            // Fallback: Bereits gerenderte Dropdowns zwingen, die neuen Werte zu fressen und rote Nodes zu heilen
+            // Fallback: Bereits gerenderte Dropdowns zwingen
+
             let healedCount = 0;
             if (app.graph && app.graph._nodes) {
                 const nodeDefs = await api.getNodeDefs();

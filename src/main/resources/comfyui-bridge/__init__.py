@@ -2,6 +2,7 @@
 import server
 import folder_paths
 import os
+import asyncio
 from aiohttp import web
 
 print("\033[95m[Model-Downloader] UI Extension Bridge active\033[0m")
@@ -16,9 +17,11 @@ if os.path.exists(USER_MODEL_PATH):
 async def model_downloaded(request):
     print("\033[92m🔥 [Model-Downloader] PING ERHALTEN! Bereite UI-Refresh vor...\033[0m")
     
+    # 1. Dem Dateisystem Zeit geben, BEVOR wir den Cache leeren!
+    await asyncio.sleep(2)
+    
     try:
-        # 1. Wir löschen nur die Caches, machen aber KEINEN eigenen Scan mehr!
-        # Das verhindert, dass wir einen noch unfertigen Windows-Ordner scannen und den Fehler cachen.
+        # 2. Erst jetzt die Caches leeren, wenn die Datei sicher im OS registriert ist
         if hasattr(folder_paths, "filename_list_cache"):
             folder_paths.filename_list_cache.clear()
             
@@ -28,13 +31,13 @@ async def model_downloaded(request):
         if hasattr(folder_paths, "cache") and hasattr(folder_paths.cache, "clear"):
             folder_paths.cache.clear()
 
-        # 2. Object Info zurücksetzen (zwingt ComfyUI beim nächsten UI-Klick zum Neuladen)
+        # Object Info zurücksetzen (zwingt ComfyUI beim nächsten UI-Klick zum Neuladen)
         server.PromptServer.instance.object_info = None
         
     except Exception as e:
         print(f"[Model-Downloader] Fehler beim Cache-Reset: {e}")
     
-    # 3. Signal an das Frontend senden
+    # 3. Signal an das Frontend senden (jetzt ist der Cache wirklich leer und das OS bereit!)
     server.PromptServer.instance.send_sync("kippster-refresh-ui", {"message": "ready"})
     
     return web.json_response({"status": "success"})

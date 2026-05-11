@@ -12,7 +12,7 @@ const initializeExtension = async () => {
 
     api.addEventListener("kippster-refresh-ui", async (event) => {
         console.log("%c🔥 [Model-Downloader] SIGNAL ERHALTEN! Starte Refresh-Sequenz...", "background: #ff0000; color: #fff; font-size: 14px;");
-
+        
         try {
             const showToast = (text) => {
                 const toast = document.createElement("div");
@@ -21,22 +21,25 @@ const initializeExtension = async () => {
                 document.body.appendChild(toast);
                 setTimeout(() => { toast.style.opacity = "0"; setTimeout(() => document.body.removeChild(toast), 500); }, 3000);
             };
-
+            
             showToast("🔄 Führe 'Refresh Node Definitions' aus...");
-
-            // ComfyUI Frontend-Cache leeren
+            
+            // 1. Frontend-Cache explizit leeren
             api.nodeDefs = null;
 
-            // Den originalen Refresh-Befehl von ComfyUI ausführen
+            // 2. Den originalen Refresh-Befehl von ComfyUI ausführen (löst /object_info aus)
             if (app.refresh) {
-                await app.refresh(); // Wichtig: Erst abwarten, bis das Backend die neuen Daten gesendet hat!
+                await app.refresh();
             }
 
-            // Fallback: Bereits gerenderte Dropdowns zwingen
+            // 3. Zusätzlicher Force: Node Definitions manuell neu laden
+            const nodeDefs = await api.getNodeDefs();
+            
+            showToast("✨ Heilung der Nodes läuft...");
 
+            // 4. Bereits gerenderte Dropdowns zwingen, die neuen Werte zu fressen
             let healedCount = 0;
             if (app.graph && app.graph._nodes) {
-                const nodeDefs = await api.getNodeDefs();
                 for (const node of app.graph._nodes) {
                     const def = nodeDefs[node.type];
                     if (def?.input?.required) {

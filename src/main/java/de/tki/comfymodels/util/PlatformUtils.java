@@ -47,6 +47,20 @@ public class PlatformUtils {
         return null;
     }
 
+    public static void killProcessByName(String name) {
+        try {
+            if (isWindows()) {
+                if (!name.endsWith(".exe")) name += ".exe";
+                Runtime.getRuntime().exec("taskkill /F /IM " + name + " /T");
+            } else {
+                // Linux/Mac
+                Runtime.getRuntime().exec("pkill -f " + name);
+            }
+        } catch (IOException e) {
+            System.err.println("Failed to kill process " + name + ": " + e.getMessage());
+        }
+    }
+
     public static boolean isSystemTraySupported() {
         try {
             return java.awt.SystemTray.isSupported();

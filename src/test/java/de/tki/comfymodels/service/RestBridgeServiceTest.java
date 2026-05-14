@@ -3,6 +3,7 @@ package de.tki.comfymodels.service;
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ArchiveService;
 import de.tki.comfymodels.service.impl.LocalModelScanner;
+import de.tki.comfymodels.service.impl.PathResolver;
 import de.tki.comfymodels.service.impl.RestBridgeService;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -31,7 +32,7 @@ class RestBridgeServiceTest {
     private final String testToken = "test-token";
 
     private static class LocalModelScannerStub extends LocalModelScanner {
-        public LocalModelScannerStub() { super(null); }
+        public LocalModelScannerStub() { super(null, new PathResolver()); }
         @Override
         public java.util.List<ModelInfo> scanLocalModels() {
             return Collections.singletonList(new ModelInfo("checkpoints", "local_test.safetensors", "LOCAL"));

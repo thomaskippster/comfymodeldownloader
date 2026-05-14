@@ -3,6 +3,7 @@ package de.tki.comfymodels;
 import de.tki.comfymodels.domain.ModelInfo;
 import de.tki.comfymodels.service.impl.ConfigService;
 import de.tki.comfymodels.service.impl.LocalModelScanner;
+import de.tki.comfymodels.service.impl.PathResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -26,13 +27,16 @@ class SubfolderRecognitionTest {
     
     private ConfigService configService;
 
+    private PathResolver pathResolver;
+
     @BeforeEach
     void setUp() {
-        configService = new ConfigService(null, null) {
+        pathResolver = new PathResolver();
+        configService = new ConfigService(null, pathResolver) {
             @Override public String getModelsPath() { return tempModels.toString(); }
             @Override public String getArchivePath() { return "archive_mock"; }
         };
-        localScanner = new LocalModelScanner(configService);
+        localScanner = new LocalModelScanner(configService, pathResolver);
     }
 
     @Test
@@ -44,7 +48,7 @@ class SubfolderRecognitionTest {
         Files.createFile(modelFile);
 
         // Test the generic recursive search method
-        Optional<Path> found = localScanner.findModelInDirectory(tempModels, "wan2.2_test.safetensors");
+        Optional<Path> found = localScanner.findModelWithPrefSize(tempModels, "wan2.2_test.safetensors", -1);
         assertTrue(found.isPresent(), "Model should be found in deep subfolder");
         assertEquals(modelFile.toAbsolutePath(), found.get().toAbsolutePath(), "Found path should match actual file path");
         
@@ -85,18 +89,18 @@ class SubfolderRecognitionTest {
         Files.write(archivedFile, new byte[1234]);
 
         // Mock config to have separate models and archive paths
-        ConfigService dualConfig = new ConfigService(null, null) {
+        ConfigService dualConfig = new ConfigService(null, pathResolver) {
             @Override public String getModelsPath() { return tempModels.toString(); }
             @Override public String getArchivePath() { return archiveDir.toString(); }
         };
-        LocalModelScanner dualScanner = new LocalModelScanner(dualConfig);
+        LocalModelScanner dualScanner = new LocalModelScanner(dualConfig, pathResolver);
 
         // Scan in models dir - should NOT find it
-        Optional<Path> foundLocal = dualScanner.findModelInDirectory(tempModels, "exclusive_model.safetensors");
+        Optional<Path> foundLocal = dualScanner.findModelWithPrefSize(tempModels, "exclusive_model.safetensors", -1);
         assertFalse(foundLocal.isPresent(), "Should not find archived model in local models scan");
 
         // Scan in archive dir - SHOULD find it
-        Optional<Path> foundArchive = dualScanner.findModelInDirectory(archiveDir, "exclusive_model.safetensors");
+        Optional<Path> foundArchive = dualScanner.findModelWithPrefSize(archiveDir, "exclusive_model.safetensors", -1);
         assertTrue(foundArchive.isPresent(), "Should find model in archive scan");
     }
 }

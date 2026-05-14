@@ -30,6 +30,38 @@ The "Bridge" is a small extension for ComfyUI that adds a "Send to Downloader" b
 2.  Rename it to `comfyui-model-downloader`.
 3.  Restart ComfyUI.
 
+## ⚙️ ComfyUI Process Control (Dynamic Discovery)
+
+The application can manage your ComfyUI server life cycle (Start/Stop/Restart) completely **autonomously**. It dynamically determines the correct paths and commands for **Windows, Linux, and macOS**.
+
+### How Discovery Works
+The app scans your system to find ComfyUI without manual input:
+1.  **System Variables:** Evaluates `COMFYUI_PATH`, `COMFYUI_HOME`, or `PINOKIO_BIN`.
+2.  **Context Recognition:** Detects if the downloader is running within or near a ComfyUI directory.
+3.  **Environment Heuristics:** Automatically locates `.venv` or `python` environments and standard installation paths (like `%USERPROFILE%\ComfyUI` or Pinokio folders).
+4.  **Automatic Port Sync:** Adjusts the launch command's port based on your configured Server URL.
+
+### Reference Examples (Auto-Detected)
+While usually not required, here is what the app typically discovers on different systems:
+
+#### 🪟 Windows (Pinokio)
+*   **Python:** `...\comfyuidata\.venv\Scripts\python.exe`
+*   **Main:** `...\ComfyUI\resources\ComfyUI\main.py`
+*   **Default Port:** `8000`
+
+#### 🐧 Linux (Manual Venv)
+*   **Python:** `./venv/bin/python3`
+*   **Main:** `./main.py`
+*   **Default Port:** `8188`
+
+#### 🍎 macOS (Apple Silicon)
+*   **Python:** `python3` (System)
+*   **Main:** `/Users/name/ComfyUI/main.py`
+
+*Note: You can manually override these in **🔌 Comfy Control -> Advanced Settings** if you have a non-standard setup.*
+
+---
+
 ## 🚀 Getting Started
 
 Choose one of the following three ways to install and run the application:

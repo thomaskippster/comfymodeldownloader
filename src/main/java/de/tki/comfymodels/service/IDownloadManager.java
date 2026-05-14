@@ -17,6 +17,11 @@ public interface IDownloadManager {
     void notifyComfyUI();
 
     /**
+     * Triggers a refresh signal and optionally forces a browser reload.
+     */
+    void notifyComfyUI(boolean forceReload);
+
+    /**
      * Returns a map of current statuses for each model in the queue.
      */
     java.util.Map<Integer, String> getQueueStatus();

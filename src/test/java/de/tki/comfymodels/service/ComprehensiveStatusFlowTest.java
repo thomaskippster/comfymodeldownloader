@@ -41,7 +41,7 @@ public class ComprehensiveStatusFlowTest {
         configService.setModelsPath(modelsDir.toString());
         configService.setArchivePath(archiveDir.toString());
         
-        localScanner = new LocalModelScanner(configService);
+        localScanner = new LocalModelScanner(configService, pathResolver);
         archiveService = new ArchiveService(configService, pathResolver);
         analyzer = new ComfyModelAnalyzer();
 
@@ -76,23 +76,23 @@ public class ComprehensiveStatusFlowTest {
         Files.write(modelPath, new byte[2000]); // Update to 2KB
         assertEquals("✅ Already exists", getStatus(results.get(0), true, false, 2000));
 
-        // 5. State: Found in Archive (Removed locally, moved to archive)
+        // 5. State: Archived (Removed locally, moved to archive)
         Files.delete(modelPath);
         Path archivePath = archiveDir.resolve("checkpoints").resolve(modelName);
         Files.createDirectories(archivePath.getParent());
         Files.write(archivePath, new byte[2000]);
-        
-        assertEquals("📦 Found in Archive", getStatus(results.get(0), false, true, 0));
 
-        // 6. State: Already exists (Archived copy found) - Exists in both
+        assertEquals("📦 Archived", getStatus(results.get(0), false, true, 0));
+
+        // 6. State: Already exists (Size match, even if archived)
         Files.write(modelPath, new byte[2000]);
-        assertEquals("✅ Already exists (Archived copy found)", getStatus(results.get(0), true, true, 2000));
-    }
+        assertEquals("✅ Already exists", getStatus(results.get(0), true, true, 2000));
+        }
 
-    /**
-     * Helper to simulate the status logic from Main.java analyzeJsonContent()
-     */
-    private String getStatus(ModelInfo info, boolean existsLocally, boolean existsInArchive, long localSize) {
+        /**
+        * Helper to simulate the status logic from Main.java analyzeJsonContent()
+        */
+        private String getStatus(ModelInfo info, boolean existsLocally, boolean existsInArchive, long localSize) {
         boolean sizeMismatch = false;
         if (existsLocally && info.getByteSize() > 0) {
             if (localSize != info.getByteSize()) {
@@ -101,13 +101,13 @@ public class ComprehensiveStatusFlowTest {
             }
         }
 
-        if (existsLocally && existsInArchive) return "✅ Already exists (Archived copy found)";
         if (existsLocally) return "✅ Already exists";
-        if (existsInArchive) return "📦 Found in Archive";
+        if (existsInArchive) return "📦 Archived";
         if (sizeMismatch) return "🔄 Size Mismatch";
-        
+
         if (info.getUrl().equals("MISSING")) return "Idle";
-        
+
         return "✅ Known Good";
-    }
-}
+        }
+        }
+

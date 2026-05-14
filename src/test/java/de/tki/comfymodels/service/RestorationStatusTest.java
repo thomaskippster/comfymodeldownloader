@@ -28,9 +28,9 @@ public class RestorationStatusTest {
     private Path tempArchiveDir;
 
     // Status Constants (as used in Main.java)
-    public static final String STATUS_FOUND_IN_ARCHIVE = "📦 Found in Archive";
+    public static final String STATUS_ARCHIVED = "📦 Archived";
     public static final String STATUS_RESTORING = "📦 Restoring...";
-    public static final String STATUS_RESTORED = "✅ Restored";
+    public static final String STATUS_RESTORED = "✅ Already exists";
     public static final String STATUS_RESTORE_FAILED = "❌ Restore Failed";
 
     @BeforeEach
@@ -76,8 +76,8 @@ public class RestorationStatusTest {
         List<String> statusSequence = new ArrayList<>();
         
         // Initial state (determined by UI/Logic)
-        statusSequence.add(STATUS_FOUND_IN_ARCHIVE);
-        assertEquals(STATUS_FOUND_IN_ARCHIVE, statusSequence.get(0));
+        statusSequence.add(STATUS_ARCHIVED);
+        assertEquals(STATUS_ARCHIVED, statusSequence.get(0));
 
         // 3. Act: Start Restoration
         statusSequence.add(STATUS_RESTORING);
@@ -109,7 +109,7 @@ public class RestorationStatusTest {
 
         // 2. Define transitions tracker
         List<String> statusSequence = new ArrayList<>();
-        statusSequence.add(STATUS_FOUND_IN_ARCHIVE);
+        statusSequence.add(STATUS_ARCHIVED);
         statusSequence.add(STATUS_RESTORING);
 
         // 3. Act: Attempt Restoration

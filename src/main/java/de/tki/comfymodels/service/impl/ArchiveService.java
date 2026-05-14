@@ -35,31 +35,61 @@ public class ArchiveService {
     }
 
     public Map<String, List<ModelInfo>> getModelsGroupedByFolder() {
-        return scanDirectory(configService.getModelsPath(), true);
+        Map<String, List<ModelInfo>> allModels = new TreeMap<>();
+        java.util.Set<String> seenPaths = new java.util.HashSet<>();
+
+        // 1. Scan Standard Models Path
+        Map<String, List<ModelInfo>> standardModels = scanDirectory(configService.getModelsPath(), true, seenPaths);
+        allModels.putAll(standardModels);
+
+        // 2. Scan Extra Model Paths
+        Map<String, List<Path>> extraPaths = pathResolver.getAllExtraModelPaths();
+        for (Map.Entry<String, List<Path>> entry : extraPaths.entrySet()) {
+            String type = entry.getKey();
+            for (Path extraPath : entry.getValue()) {
+                if (Files.exists(extraPath) && Files.isDirectory(extraPath)) {
+                    Map<String, List<ModelInfo>> extraModels = scanDirectory(extraPath.toString(), true, seenPaths);
+                    // Merge extra models. 
+                    for (Map.Entry<String, List<ModelInfo>> extraEntry : extraModels.entrySet()) {
+                        String folder = extraEntry.getKey();
+                        String targetFolder = "root".equals(folder) ? type : type + "/" + folder;
+                        allModels.computeIfAbsent(targetFolder, k -> new ArrayList<>()).addAll(extraEntry.getValue());
+                    }
+                }
+            }
+        }
+
+        return allModels;
     }
 
     public Map<String, List<ModelInfo>> getArchivedModelsGroupedByFolder() {
-        return scanDirectory(configService.getArchivePath(), false);
+        String archivePath = configService.getArchivePath();
+        if (archivePath == null || archivePath.trim().isEmpty()) {
+            return new TreeMap<>();
+        }
+        return scanDirectory(archivePath, false, new java.util.HashSet<>());
     }
 
-    private Map<String, List<ModelInfo>> scanDirectory(String pathStr, boolean excludeArchived) {
+    private Map<String, List<ModelInfo>> scanDirectory(String pathStr, boolean excludeArchived, java.util.Set<String> seenPaths) {
         Map<String, List<ModelInfo>> grouped = new TreeMap<>();
         if (pathStr == null || pathStr.isEmpty()) return grouped;
         
-        Path root = Paths.get(pathStr);
+        Path root = Paths.get(pathStr).toAbsolutePath().normalize();
         if (!Files.exists(root)) {
-            System.err.println("Scan directory does not exist: " + pathStr);
             return grouped;
         }
 
         try (Stream<Path> walk = Files.walk(root)) {
             walk.filter(p -> {
                     try {
-                        // Ignore hidden directories and .venv / venv
+                        // Ignore hidden directories and .venv / venv / archive (if excluding)
                         Path relativeToRoot = root.relativize(p);
                         for (Path part : relativeToRoot) {
-                            String name = part.toString();
-                            if (name.startsWith(".") || name.equalsIgnoreCase("venv") || name.equalsIgnoreCase(".venv") || name.equalsIgnoreCase("__pycache__")) {
+                            String name = part.toString().toLowerCase();
+                            if (name.startsWith(".") || name.equals("venv") || name.equals(".venv") || name.equals("__pycache__")) {
+                                return false;
+                            }
+                            if (excludeArchived && (name.equals("archive") || name.equals("archived"))) {
                                 return false;
                             }
                         }
@@ -68,11 +98,12 @@ public class ArchiveService {
                         return false;
                     }
                 })
-                .filter(p -> Files.isRegularFile(p))
+                .filter(Files::isRegularFile)
                 .filter(this::isSupportedModel)
                 .filter(p -> !excludeArchived || !isAlreadyArchived(p))
                 .forEach(p -> {
-                    if (!Files.exists(p)) return; // Double check existence
+                    String absPath = p.toAbsolutePath().normalize().toString().toLowerCase();
+                    if (!seenPaths.add(absPath)) return;
 
                     Path relative = root.relativize(p);
                     String folder = relative.getParent() != null ? relative.getParent().toString().replace("\\", "/") : "root";
@@ -84,6 +115,7 @@ public class ArchiveService {
                     
                     try {
                         long bytes = Files.size(p);
+                        info.setByteSize(bytes);
                         double mb = bytes / (1024.0 * 1024.0);
                         if (mb > 1024) {
                             info.setSize(String.format("%.2f GB", mb / 1024.0));
@@ -98,7 +130,6 @@ public class ArchiveService {
                 });
         } catch (IOException e) {
             System.err.println("Error walking directory " + pathStr + ": " + e.getMessage());
-            e.printStackTrace();
         }
         
         return grouped;
@@ -112,37 +143,74 @@ public class ArchiveService {
     private boolean isAlreadyArchived(Path p) {
         String archivePathStr = configService.getArchivePath();
         if (archivePathStr == null || archivePathStr.isEmpty()) return false;
-        Path archivePath = Paths.get(archivePathStr).toAbsolutePath();
-        return p.toAbsolutePath().startsWith(archivePath);
+        try {
+            Path archivePath = Paths.get(archivePathStr).toAbsolutePath().normalize();
+            Path targetPath = p.toAbsolutePath().normalize();
+            return targetPath.startsWith(archivePath);
+        } catch (Exception e) {
+            return false;
+        }
     }
 
     public void moveToArchiveWithProgress(String relativePath, LongConsumer progressUpdate) throws IOException {
-        String modelsPath = configService.getModelsPath();
-        String archivePath = configService.getArchivePath();
-        
-        if (modelsPath == null || archivePath == null) throw new IOException("Paths not configured");
-
-        Path source = Paths.get(modelsPath, relativePath);
-        Path target = Paths.get(archivePath, relativePath);
-
-        if (!Files.exists(source)) throw new IOException("Source not found: " + source);
-
-        Files.createDirectories(target.getParent());
-        moveWithProgress(source, target, progressUpdate);
+        Path p = Paths.get(relativePath);
+        String filename = p.getFileName().toString();
+        String folder = p.getParent() != null ? p.getParent().toString().replace("\\", "/") : "root";
+        moveToArchiveWithProgress(folder, filename, progressUpdate);
     }
 
     public void moveToArchive(String relativePath) throws IOException {
         moveToArchiveWithProgress(relativePath, null);
     }
 
-    public void moveToArchiveWithProgress(String folder, String filename, LongConsumer progressUpdate) throws IOException {
-        String normFolder = normalizeFolder(folder);
-        String relPath = "root".equals(normFolder) ? filename : Paths.get(normFolder, filename).toString();
-        moveToArchiveWithProgress(relPath, progressUpdate);
-    }
-
     public void moveToArchive(String folder, String filename) throws IOException {
         moveToArchiveWithProgress(folder, filename, null);
+    }
+
+    public void moveToArchiveWithProgress(String folder, String filename, LongConsumer progressUpdate) throws IOException {
+        String archivePathStr = configService.getArchivePath();
+        if (archivePathStr == null) throw new IOException("Archive path not configured");
+        Path archivePath = Paths.get(archivePathStr);
+
+        String normFolder = normalizeFolder(folder);
+        
+        // Find source path by checking standard and extra paths
+        Path source = findActualSourcePath(normFolder, filename);
+        if (source == null || !Files.exists(source)) {
+            throw new IOException("Source model not found: " + filename + " in folder " + normFolder);
+        }
+
+        // Target in archive follows the relative structure
+        String relPath = "root".equals(normFolder) ? filename : Paths.get(normFolder, filename).toString();
+        Path target = archivePath.resolve(relPath);
+
+        Files.createDirectories(target.getParent());
+        moveWithProgress(source, target, progressUpdate);
+    }
+
+    private Path findActualSourcePath(String folder, String filename) {
+        String modelsPathStr = configService.getModelsPath();
+        if (modelsPathStr == null) return null;
+        
+        Path modelsPath = Paths.get(modelsPathStr);
+        
+        // 1. Check standard path
+        Path standardPath = "root".equals(folder) ? modelsPath.resolve(filename) : modelsPath.resolve(folder).resolve(filename);
+        if (Files.exists(standardPath)) return standardPath;
+        
+        // 2. Check extra paths for this type/folder
+        List<Path> extraPaths = pathResolver.getModelPaths(folder);
+        for (Path extraRoot : extraPaths) {
+            // Since extraRoot often ALREADY points to the type folder (e.g. .../checkpoints)
+            // we check both extraRoot/filename AND extraRoot/folder/filename
+            Path p1 = extraRoot.resolve(filename);
+            if (Files.exists(p1)) return p1;
+            
+            Path p2 = extraRoot.resolve(folder).resolve(filename);
+            if (Files.exists(p2)) return p2;
+        }
+        
+        return null;
     }
 
     public boolean restoreFromArchiveWithProgress(String folder, String filename, LongConsumer progressUpdate) {
@@ -156,20 +224,25 @@ public class ArchiveService {
 
         String normFolder = normalizeFolder(folder);
         
-        // Primary location with case-insensitive resolution
+        // Primary location in archive
         Path archivedFolder = "root".equals(normFolder) ? archivePath : pathResolver.resolveCaseInsensitiveRecursive(archivePath, normFolder);
         Path archived = archivedFolder.resolve(filename);
         
+        // Determine target folder: prefer extra paths if configured
         Path targetFolder = "root".equals(normFolder) ? modelsPath : modelsPath.resolve(normFolder);
+        List<Path> extraPaths = pathResolver.getModelPaths(normFolder);
+        if (!extraPaths.isEmpty()) {
+            targetFolder = extraPaths.get(0);
+        }
+        
         Path target = targetFolder.resolve(filename);
 
-        // Fallback: If not at primary, check root of archive
+        // Fallback: If not at primary archive location, check root of archive or search
         if (!Files.exists(archived)) {
             Path rootArchived = archivePath.resolve(filename);
             if (Files.exists(rootArchived)) {
                 archived = rootArchived;
             } else {
-                // Secondary Fallback: Check if it exists ANYWHERE in the archive (shallow search)
                 try (Stream<Path> walk = Files.walk(archivePath, 2)) {
                     java.util.Optional<Path> found = walk.filter(Files::isRegularFile)
                         .filter(p -> p.getFileName().toString().equalsIgnoreCase(filename))
@@ -177,7 +250,7 @@ public class ArchiveService {
                     if (found.isPresent()) {
                         archived = found.get();
                     } else {
-                        System.err.println("Restore failed: " + filename + " not found in archive (checked " + normFolder + " and root)");
+                        System.err.println("Restore failed: " + filename + " not found in archive");
                         return false;
                     }
                 } catch (IOException e) {

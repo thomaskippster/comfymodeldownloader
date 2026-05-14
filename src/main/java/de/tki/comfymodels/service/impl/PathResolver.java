@@ -7,6 +7,10 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.stream.Stream;
 
 @Component
@@ -17,6 +21,7 @@ public class PathResolver {
     public static final String CUSTOM_NODES_DIR = "custom_nodes";
 
     private String comfyUIRoot;
+    private final Map<String, List<Path>> extraModelPaths = new HashMap<>();
 
     public void setComfyUIRoot(String root) {
         this.comfyUIRoot = root;
@@ -24,6 +29,59 @@ public class PathResolver {
 
     public String getComfyUIRoot() {
         return comfyUIRoot;
+    }
+
+    public void addExtraModelPath(String type, Path path) {
+        extraModelPaths.computeIfAbsent(type.toLowerCase(), k -> new ArrayList<>()).add(path);
+    }
+
+    public void clearExtraModelPaths() {
+        extraModelPaths.clear();
+    }
+
+    public List<Path> getModelPaths(String type) {
+        List<Path> paths = new ArrayList<>();
+        if (type == null) return paths;
+        
+        String inputType = type.replace("\\", "/");
+        String normalizedType = inputType.toLowerCase();
+        
+        // Handle common ComfyUI type aliases/groupings
+        List<String> typesToSearch = new ArrayList<>();
+        typesToSearch.add(normalizedType);
+        
+        if (normalizedType.equals("unet") || normalizedType.equals("diffusion_models")) {
+            typesToSearch.add("unet");
+            typesToSearch.add("diffusion_models");
+        } else if (normalizedType.equals("clip") || normalizedType.equals("text_encoders")) {
+            typesToSearch.add("clip");
+            typesToSearch.add("text_encoders");
+        }
+        
+        for (String t : typesToSearch) {
+            List<Path> extras = extraModelPaths.get(t);
+            if (extras != null) paths.addAll(extras);
+        }
+
+        // NEW: Prefix matching for subfolders
+        // If type is "checkpoints/SD15" and we have an extra path for "checkpoints"
+        if (paths.isEmpty() && normalizedType.contains("/")) {
+            for (Map.Entry<String, List<Path>> entry : extraModelPaths.entrySet()) {
+                String extraType = entry.getKey();
+                if (normalizedType.startsWith(extraType + "/")) {
+                    String subPath = inputType.substring(extraType.length() + 1);
+                    for (Path root : entry.getValue()) {
+                        paths.add(root.resolve(subPath));
+                    }
+                }
+            }
+        }
+        
+        return paths;
+    }
+
+    public Map<String, List<Path>> getAllExtraModelPaths() {
+        return new HashMap<>(extraModelPaths);
     }
 
     /**

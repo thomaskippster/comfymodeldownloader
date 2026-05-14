@@ -122,8 +122,13 @@ public class DefaultDownloadManager implements IDownloadManager {
     // NEU: Benachrichtigt ComfyUI
     @Override
     public void notifyComfyUI() {
+        notifyComfyUI(false);
+    }
+
+    @Override
+    public void notifyComfyUI(boolean forceReload) {
         String comfyUrl = configService.getComfyUIUrl();
-        if (sendRefreshPing(comfyUrl)) {
+        if (sendRefreshPing(comfyUrl, forceReload)) {
             return;
         }
 
@@ -133,23 +138,25 @@ public class DefaultDownloadManager implements IDownloadManager {
         if (discoveredUrl != null) {
             System.out.println("✨ [Model-Downloader] ComfyUI automatisch gefunden unter: " + discoveredUrl);
             configService.setComfyUIUrl(discoveredUrl);
-            sendRefreshPing(discoveredUrl);
+            sendRefreshPing(discoveredUrl, forceReload);
         } else {
             System.err.println("❌ [Model-Downloader] ComfyUI konnte nicht automatisch gefunden werden. Bitte stelle sicher, dass es läuft.");
         }
     }
 
-    private boolean sendRefreshPing(String url) {
+    private boolean sendRefreshPing(String url, boolean forceReload) {
         try {
+            String json = "{\"force_reload\": " + forceReload + "}";
             HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(url + "/kippster/model-downloaded"))
+                .uri(URI.create(url + "/cmfd/refresh-models"))
                 .timeout(java.time.Duration.ofSeconds(2))
-                .POST(HttpRequest.BodyPublishers.noBody())
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(json))
                 .build();
             
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() == 200) {
-                System.out.println("✅ [Model-Downloader] ComfyUI (" + url + ") erfolgreich benachrichtigt.");
+                System.out.println("✅ [Model-Downloader] ComfyUI (" + url + ") erfolgreich benachrichtigt (Force: " + forceReload + ").");
                 return true;
             }
         } catch (Exception ignored) {}
@@ -222,6 +229,10 @@ public class DefaultDownloadManager implements IDownloadManager {
             }
 
             long existingFileSize = (file.exists() && !isActuallyInArchive) ? file.length() : 0;
+            
+            Path partFile = targetFile.resolveSibling(targetFile.getFileName().toString() + ".cmfd");
+            File pFile = partFile.toFile();
+            long existingPartSize = pFile.exists() ? pFile.length() : 0;
 
             if (waitForPauseAndCheckSelection(index, statusUpdater)) return;
             
@@ -276,13 +287,19 @@ public class DefaultDownloadManager implements IDownloadManager {
                 downloadBuilder.header("Authorization", "Bearer " + hfToken);
             }
 
-            if (existingFileSize > 0) downloadBuilder.header("Range", "bytes=" + existingFileSize + "-");
+            if (existingPartSize > 0) downloadBuilder.header("Range", "bytes=" + existingPartSize + "-");
 
             HttpResponse<InputStream> response = httpClient.send(downloadBuilder.build(), HttpResponse.BodyHandlers.ofInputStream());
             int statusCode = response.statusCode();
 
             if (statusCode == 416) { 
-                 safeUpdateStatus(index, "✅ Already exists", statusUpdater);
+                 // Part might be complete but not moved
+                 if (existingPartSize == totalRemoteSize) {
+                     Files.move(partFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
+                     safeUpdateStatus(index, "✅ Finished", statusUpdater);
+                 } else {
+                     safeUpdateStatus(index, "✅ Already exists", statusUpdater);
+                 }
                  return;
             }
 
@@ -292,19 +309,19 @@ public class DefaultDownloadManager implements IDownloadManager {
             }
 
             long contentLen = response.headers().firstValueAsLong("Content-Length").orElse(0L);
-            long totalBytes = (statusCode == 206) ? contentLen + existingFileSize : contentLen;
+            long totalBytes = (statusCode == 206) ? contentLen + existingPartSize : contentLen;
 
             if (totalBytes > 0 && totalBytes < 5000 && info.getName().endsWith(".safetensors")) {
                 safeUpdateStatus(index, "❌ LFS Stub detected (Token?)", statusUpdater);
                 return;
             }
 
-            if (statusCode == 200) existingFileSize = 0;
+            if (statusCode == 200) existingPartSize = 0;
 
-            try (InputStream is = response.body(); RandomAccessFile raf = new RandomAccessFile(file, "rw")) {       
-                raf.seek(existingFileSize);
+            try (InputStream is = response.body(); RandomAccessFile raf = new RandomAccessFile(pFile, "rw")) {       
+                raf.seek(existingPartSize);
                 byte[] buffer = new byte[65536];
-                long downloaded = existingFileSize;
+                long downloaded = existingPartSize;
                 int read;
                 long lastUpdate = 0;
                 while ((read = is.read(buffer)) != -1) {
@@ -332,19 +349,21 @@ public class DefaultDownloadManager implements IDownloadManager {
             if (isStopped || !isSelected(index)) {
                 safeUpdateStatus(index, !isSelected(index) ? "Skipped (Unchecked)" : "Stopped", statusUpdater);
             } else {
-                long finalSize = file.length();
+                long finalSize = pFile.length();
                 boolean sizeMismatch = totalBytes > 0 && finalSize < totalBytes;
                 boolean corruptedSafetensor = info.getName().endsWith(".safetensors") && (finalSize % 2 != 0);
 
                 if ((sizeMismatch || corruptedSafetensor) && retryCount < 1) {
                     safeUpdateStatus(index, "🔄 Verification failed, redownloading...", statusUpdater);
-                    file.delete();
+                    pFile.delete();
                     downloadWithResumeInternal(info, targetFile, index, statusUpdater, retryCount + 1);
                 } else if (sizeMismatch) {
                     safeUpdateStatus(index, "❌ Incomplete (" + formatSize(finalSize) + "/" + formatSize(totalBytes) + ")", statusUpdater);
                 } else if (corruptedSafetensor) {
                     safeUpdateStatus(index, "❌ Corrupted (Odd Size)", statusUpdater);
                 } else {
+                    // Atomic move to final destination
+                    Files.move(partFile, targetFile, StandardCopyOption.REPLACE_EXISTING);
                     safeUpdateStatus(index, "✅ Finished", statusUpdater);
                 }
             }

@@ -25,14 +25,15 @@ public class LocalModelScannerTest {
 
     @BeforeEach
     public void setup() {
+        PathResolver pathResolver = new PathResolver();
         // Use a simple stub for ConfigService to avoid Mockito issues on Java 25
-        configService = new ConfigService(null, new PathResolver()) {
+        configService = new ConfigService(null, pathResolver) {
             @Override
             public String getModelsPath() {
                 return tempDir.toString();
             }
         };
-        scanner = new LocalModelScanner(configService);
+        scanner = new LocalModelScanner(configService, pathResolver);
     }
 
     @Test

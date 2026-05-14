@@ -11,6 +11,7 @@ import de.tki.comfymodels.service.impl.GeminiAIService;
 import de.tki.comfymodels.service.impl.ModelListService;
 import de.tki.comfymodels.service.impl.ModelHashRegistry;
 import de.tki.comfymodels.ui.DotGridPanel;
+import de.tki.comfymodels.ui.ComfyWebPanel;
 import com.formdev.flatlaf.FlatDarkLaf;
 import com.formdev.flatlaf.FlatLightLaf;
 import com.formdev.flatlaf.FlatLaf;
@@ -55,6 +56,9 @@ public class Main extends JFrame {
     private final IModelValidator modelValidator;
     private final de.tki.comfymodels.service.impl.RestBridgeService restBridge;
     private final de.tki.comfymodels.service.impl.ArchiveService archiveService;
+    private final de.tki.comfymodels.service.IComfyLifecycleService lifecycleService;
+    private final de.tki.comfymodels.service.impl.ComfyDiagnosticService diagnosticService;
+    private de.tki.comfymodels.ui.ComfyWebPanel comfyWebPanel;
 
     @Autowired
     private ConfigService configService;
@@ -76,8 +80,10 @@ public class Main extends JFrame {
 
     private JCheckBox backgroundCheck;
     private JCheckBox shutdownCheck;
+    private JCheckBox restartCheck;
     private JCheckBox darkCheck;
     private JLabel activeAiModelLabel;
+    private JLabel lifecycleStatusLabel;
     private JTextArea jsonInputArea;
     private DefaultTableModel tableModel;
     private JLabel statusLabel;
@@ -89,7 +95,9 @@ public class Main extends JFrame {
     public Main(IModelAnalyzer analyzer, IDownloadManager downloadManager,
                 IWorkflowService workflowService, IModelSearchService searchService,
                 IModelValidator modelValidator, de.tki.comfymodels.service.impl.RestBridgeService restBridge,
-                de.tki.comfymodels.service.impl.ArchiveService archiveService) {
+                de.tki.comfymodels.service.impl.ArchiveService archiveService,
+                de.tki.comfymodels.service.IComfyLifecycleService lifecycleService,
+                de.tki.comfymodels.service.impl.ComfyDiagnosticService diagnosticService) {
         this.analyzer = analyzer;
         this.downloadManager = downloadManager;
         this.workflowService = workflowService;
@@ -97,6 +105,8 @@ public class Main extends JFrame {
         this.modelValidator = modelValidator;
         this.restBridge = restBridge;
         this.archiveService = archiveService;
+        this.lifecycleService = lifecycleService;
+        this.diagnosticService = diagnosticService;
     }
 
     public void launch(String[] args) {
@@ -148,6 +158,7 @@ public class Main extends JFrame {
                         if (configService.isBackgroundModeEnabled()) {
                             setVisible(false);
                         } else {
+                            lifecycleService.stop();
                             downloadManager.stop();
                             System.exit(0);
                         }
@@ -282,10 +293,7 @@ public class Main extends JFrame {
         MenuItem showItem = new MenuItem("Show UI");
         showItem.addActionListener(e -> setVisible(true));
         MenuItem exitItem = new MenuItem("Exit");
-        exitItem.addActionListener(e -> {
-            downloadManager.stop();
-            System.exit(0);
-        });
+        exitItem.addActionListener(e -> performAppExit());
 
         popup.add(showItem);
         popup.addSeparator();
@@ -350,6 +358,7 @@ public class Main extends JFrame {
 
             try {
                 configService.unlock(pass);
+                configService.autoDiscoverPaths(); // Ensure paths are discovered after unlock
                 restBridge.setApiToken(configService.getApiToken());
                 syncBridgeFiles(); // NEW: Automatically sync code & token on every unlock
                 
@@ -366,9 +375,110 @@ public class Main extends JFrame {
         }
     }
 
+    private void showLifecycleDialog() {
+        JDialog dialog = new JDialog(this, "ComfyUI Control", true);
+        dialog.setLayout(new BorderLayout());
+        dialog.setSize(880, 420);
+        dialog.setLocationRelativeTo(this);
+
+        JPanel content = new JPanel(new GridBagLayout());
+        content.setBorder(BorderFactory.createEmptyBorder(25, 25, 25, 25));
+        GridBagConstraints gbc = new GridBagConstraints();
+        gbc.fill = GridBagConstraints.HORIZONTAL;
+        gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1.0;
+
+        JLabel titleLabel = new JLabel("ComfyUI Server Status");
+        titleLabel.setFont(new Font("SansSerif", Font.BOLD, 18));
+        titleLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        content.add(titleLabel, gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(25, 0, 25, 0);
+        lifecycleStatusLabel = new JLabel(lifecycleService.getStatus());
+        lifecycleStatusLabel.setFont(new Font("SansSerif", Font.BOLD, 16));
+        lifecycleStatusLabel.setHorizontalAlignment(SwingConstants.CENTER);
+        content.add(lifecycleStatusLabel, gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(10, 0, 20, 0);
+        JPanel controlButtons = new JPanel(new FlowLayout(FlowLayout.CENTER, 15, 10));
+        JButton startBtn = new JButton("▶ Start");
+        startBtn.setPreferredSize(new Dimension(110, 40));
+        startBtn.addActionListener(e -> {
+            configService.autoDiscoverPaths();
+            startComfyAndReload();
+        });
+        
+        JButton stopBtn = new JButton("⏹ Stop");
+        stopBtn.setPreferredSize(new Dimension(110, 40));
+        stopBtn.addActionListener(e -> lifecycleService.stop());
+        
+        JButton restartBtn = new JButton("🔄 Restart");
+        restartBtn.setPreferredSize(new Dimension(110, 40));
+        restartBtn.addActionListener(e -> {
+            configService.autoDiscoverPaths();
+            new Thread(() -> {
+                lifecycleService.stop();
+                try { Thread.sleep(2000); } catch (InterruptedException ignored) {}
+                startComfyAndReload();
+            }).start();
+        });
+
+        JButton openBrowserBtn = new JButton("🌐 Open Interface");
+        openBrowserBtn.setPreferredSize(new Dimension(150, 40));
+        openBrowserBtn.addActionListener(e -> {
+            try {
+                Desktop.getDesktop().browse(new java.net.URI(configService.getComfyUIUrl()));
+            } catch (Exception ex) {
+                JOptionPane.showMessageDialog(dialog, "Could not open browser: " + ex.getMessage());
+            }
+        });
+        
+        controlButtons.add(startBtn);
+        controlButtons.add(stopBtn);
+        controlButtons.add(restartBtn);
+        controlButtons.add(openBrowserBtn);
+        content.add(controlButtons, gbc);
+
+        // Timer to update status
+        Timer timer = new Timer(1000, e -> {
+            lifecycleStatusLabel.setText(lifecycleService.getStatus());
+            if (lifecycleService.isRunning()) {
+                lifecycleStatusLabel.setForeground(new Color(0, 150, 0));
+                startBtn.setEnabled(false);
+                stopBtn.setEnabled(true);
+            } else {
+                lifecycleStatusLabel.setForeground(Color.RED);
+                startBtn.setEnabled(true);
+                stopBtn.setEnabled(false);
+            }
+        });
+        timer.start();
+        dialog.addWindowListener(new java.awt.event.WindowAdapter() {
+            @Override public void windowClosing(java.awt.event.WindowEvent e) { timer.stop(); }
+        });
+
+        gbc.gridy++;
+        gbc.weighty = 1.0;
+        content.add(new JPanel(), gbc);
+
+        JPanel bottom = new JPanel(new FlowLayout(FlowLayout.RIGHT));
+        bottom.setBorder(BorderFactory.createEmptyBorder(0, 10, 10, 10));
+        
+        JButton close = new JButton("Close");
+        close.addActionListener(e -> dialog.dispose());
+        
+        bottom.add(close);
+
+        dialog.add(content, BorderLayout.CENTER);
+        dialog.add(bottom, BorderLayout.SOUTH);
+        dialog.setVisible(true);
+    }
+
     private void loadSettingsIntoUI() {
         if (backgroundCheck != null) backgroundCheck.setSelected(configService.isBackgroundModeEnabled());
         if (shutdownCheck != null) shutdownCheck.setSelected(configService.isShutdownAfterDownloadEnabled());
+        if (restartCheck != null) restartCheck.setSelected(configService.isRestartAfterDownloadEnabled());
         if (darkCheck != null) darkCheck.setSelected(configService.isDarkMode());
     }
 
@@ -382,23 +492,42 @@ public class Main extends JFrame {
     private void initUI() {
         loadIcon();
         setTitle("ComfyUIModel-Downloader");
-        setSize(1450, 900);
+        setSize(1450, 950);
         setDefaultCloseOperation(JFrame.DO_NOTHING_ON_CLOSE);
 
         getRootPane().putClientProperty("flatlaf.useWindowDecorations", true);
         
-        JPanel mainContainer = new DotGridPanel(new BorderLayout(10, 10));
-        mainContainer.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
-        setContentPane(mainContainer);
+        // --- PREPARE TABBED INTERFACE ---
+        JTabbedPane mainTabs = new JTabbedPane();
+        mainTabs.setFont(new Font("SansSerif", Font.BOLD, 13));
 
+        comfyWebPanel = new de.tki.comfymodels.ui.ComfyWebPanel(configService.getComfyUIUrl());
 
-        // --- NEW COMPACT TOOLBAR ---
+        // --- TAB 1: Model Manager (Original UI) ---
+        JPanel managerPanel = new JPanel(new BorderLayout(10, 10));
+        managerPanel.setBorder(BorderFactory.createEmptyBorder(10, 10, 10, 10));
+
+        // --- TOOLBAR ---
         JPanel toolbar = new JPanel(new FlowLayout(FlowLayout.LEFT, 10, 5));
         toolbar.setBorder(BorderFactory.createEtchedBorder());
 
         JButton settingsBtn = new JButton("⚙ Settings...");
         settingsBtn.addActionListener(e -> showSettingsMenu(settingsBtn));
         
+        JButton lifecycleBtn = new JButton("🔌 Comfy Control...");
+        lifecycleBtn.addActionListener(e -> showLifecycleDialog());
+
+        JButton startServerBtn = new JButton("▶ Start ComfyUI");
+        startServerBtn.setToolTipText("Starts the ComfyUI server in the background");
+        startServerBtn.addActionListener(e -> {
+            if (lifecycleService.isRunning()) {
+                JOptionPane.showMessageDialog(this, "ComfyUI is already running.", "Info", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                startComfyAndReload();
+                updateComfyTabVisibility(mainTabs);
+            }
+        });
+
         JButton verifyBtn = new JButton("🔍 Fast Verify");
         verifyBtn.addActionListener(e -> verifyLocalModels(false));
         
@@ -419,10 +548,51 @@ public class Main extends JFrame {
         JButton helpBtn = new JButton("ℹ Help");
         helpBtn.addActionListener(e -> showHelpDialog());
 
+        JButton diagnosticBtn = new JButton("🩺 Diagnostic");
+        diagnosticBtn.addActionListener(e -> {
+            if (modelsToDownload == null || modelsToDownload.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "Load a workflow first to perform a diagnostic check.");
+                return;
+            }
+            List<String> missing = diagnosticService.getMissingModels(modelsToDownload);
+            if (missing.isEmpty()) {
+                JOptionPane.showMessageDialog(this, "✅ All workflow models are visible to ComfyUI!", "Diagnostic Passed", JOptionPane.INFORMATION_MESSAGE);
+            } else {
+                String list = String.join("\n- ", missing);
+                
+                List<Object> optionsList = new ArrayList<>();
+                optionsList.add("🚀 Restart ComfyUI (Full Service Restart)");
+                
+                boolean canStart = !lifecycleService.isRunning() && 
+                                  configService.getComfyLaunchCommand() != null && 
+                                  !configService.getComfyLaunchCommand().trim().isEmpty();
+                
+                if (canStart) {
+                    optionsList.add("▶ Start ComfyUI");
+                }
+                optionsList.add("Ignore");
+                
+                Object[] options = optionsList.toArray();
+                int choice = JOptionPane.showOptionDialog(this, 
+                    "❌ ComfyUI still reports these models as missing:\n- " + list + "\n\n" +
+                    "A restart is required for ComfyUI to detect new models.", 
+                    "Diagnostic Failed", JOptionPane.YES_NO_CANCEL_OPTION, JOptionPane.WARNING_MESSAGE, null, options, options[0]);
+                
+                if (choice == 0) {
+                    performFullServiceRestart();
+                } else if (canStart && choice == 1) {
+                    lifecycleService.start();
+                    JOptionPane.showMessageDialog(this, "ComfyUI is being started. Please wait a few moments for it to initialize.", "Starting Service", JOptionPane.INFORMATION_MESSAGE);
+                }
+            }
+        });
+
         backgroundCheck = new JCheckBox("Stay in Background");
         backgroundCheck.addActionListener(e -> configService.setBackgroundModeEnabled(backgroundCheck.isSelected()));
         shutdownCheck = new JCheckBox("Shutdown after Queue");
         shutdownCheck.addActionListener(e -> configService.setShutdownAfterDownloadEnabled(shutdownCheck.isSelected()));
+        restartCheck = new JCheckBox("Full Restart after Queue");
+        restartCheck.addActionListener(e -> configService.setRestartAfterDownloadEnabled(restartCheck.isSelected()));
         darkCheck = new JCheckBox("Dark Mode");
         darkCheck.addActionListener(e -> {
             boolean isDark = darkCheck.isSelected();
@@ -435,6 +605,7 @@ public class Main extends JFrame {
         });
 
         toolbar.add(settingsBtn);
+        toolbar.add(lifecycleBtn);
         toolbar.add(new JSeparator(JSeparator.VERTICAL));
         toolbar.add(verifyBtn);
         toolbar.add(optimizeBtn);
@@ -442,6 +613,7 @@ public class Main extends JFrame {
         toolbar.add(new JSeparator(JSeparator.VERTICAL));
         toolbar.add(backgroundCheck);
         toolbar.add(shutdownCheck);
+        toolbar.add(restartCheck);
         toolbar.add(darkCheck);
 
         JSplitPane splitPane = new JSplitPane(JSplitPane.VERTICAL_SPLIT);
@@ -504,13 +676,15 @@ public class Main extends JFrame {
 
         splitPane.setTopComponent(jsonPanel);
         splitPane.setBottomComponent(tablePanel);
-        splitPane.setDividerLocation(300);
+        splitPane.setDividerLocation(350);
 
         JPanel bottomPanel = new JPanel(new BorderLayout());
         statusLabel = new JLabel("Ready");
+        statusLabel.setName("statusLabel");
         
         JPanel progressPanel = new JPanel(new GridLayout(2, 1));
         activeAiModelLabel = new JLabel("Active AI: Loading...");
+        activeAiModelLabel.setName("activeAiModelLabel");
         activeAiModelLabel.setFont(new Font("SansSerif", Font.ITALIC, 11));
         activeAiModelLabel.setForeground(Color.GRAY);
         progressPanel.add(statusLabel);
@@ -518,14 +692,17 @@ public class Main extends JFrame {
         
         JPanel actionButtons = new JPanel(new FlowLayout(FlowLayout.RIGHT));
         downloadButton = new JButton("Start Queue");
+        downloadButton.setName("downloadButton");
         downloadButton.setEnabled(false);
         downloadButton.addActionListener(e -> startDownloadQueue());
         pauseButton = new JButton("Pause");
+        pauseButton.setName("pauseButton");
         pauseButton.addActionListener(e -> {
             downloadManager.togglePause();
             pauseButton.setText(downloadManager.isPaused() ? "Resume" : "Pause");
         });
         stopButton = new JButton("Stop");
+        stopButton.setName("stopButton");
         stopButton.addActionListener(e -> downloadManager.stop());
         actionButtons.add(downloadButton);
         actionButtons.add(pauseButton);
@@ -534,9 +711,50 @@ public class Main extends JFrame {
         bottomPanel.add(progressPanel, BorderLayout.CENTER);
         bottomPanel.add(actionButtons, BorderLayout.EAST);
 
-        mainContainer.add(toolbar, BorderLayout.NORTH);
-        mainContainer.add(splitPane, BorderLayout.CENTER);
-        mainContainer.add(bottomPanel, BorderLayout.SOUTH);
+        managerPanel.add(toolbar, BorderLayout.NORTH);
+        managerPanel.add(splitPane, BorderLayout.CENTER);
+        managerPanel.add(bottomPanel, BorderLayout.SOUTH);
+
+        setContentPane(managerPanel);
+    }
+
+    private void startComfyAndReload() {
+        new Thread(() -> {
+            lifecycleService.start();
+            // Wait for health
+            for (int i = 0; i < 30; i++) {
+                if (lifecycleService.isHealthy()) {
+                    if (comfyWebPanel != null) {
+                        comfyWebPanel.reload();
+                    }
+                    return;
+                }
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+            }
+        }).start();
+    }
+
+    private void updateComfyTabVisibility(JTabbedPane tabs) {
+        boolean isRunning = lifecycleService.isRunning();
+        boolean isHealthy = lifecycleService.isHealthy();
+        
+        // Only show if actually running or healthy
+        boolean shouldShow = isRunning || isHealthy;
+        
+        int comfyTabIndex = tabs.indexOfComponent(comfyWebPanel);
+
+        if (shouldShow && comfyTabIndex == -1) {
+            System.out.println("✅ [UI] Showing ComfyUI Tab (Running=" + isRunning + ", Healthy=" + isHealthy + ")");
+            tabs.addTab("🎨 ComfyUI Interface", comfyWebPanel);
+            comfyWebPanel.loadUrl(configService.getComfyUIUrl()); // Force reload when re-added
+            tabs.revalidate();
+            tabs.repaint();
+        } else if (!shouldShow && comfyTabIndex != -1) {
+            System.out.println("🚫 [UI] Hiding ComfyUI Tab (Running=" + isRunning + ", Healthy=" + isHealthy + ")");
+            tabs.removeTabAt(comfyTabIndex);
+            tabs.revalidate();
+            tabs.repaint();
+        }
     }
 
     private void showSettingsMenu(JButton parent) {
@@ -555,10 +773,7 @@ public class Main extends JFrame {
         helpItem.addActionListener(e -> showHelpDialog());
 
         JMenuItem exitItem = new JMenuItem("❌ Exit Application");
-        exitItem.addActionListener(e -> {
-            downloadManager.stop();
-            System.exit(0);
-        });
+        exitItem.addActionListener(e -> performAppExit());
 
         menu.add(pathsItem);
         menu.add(apiItem);
@@ -572,10 +787,16 @@ public class Main extends JFrame {
         menu.show(parent, 0, parent.getHeight());
     }
 
+    private void performAppExit() {
+        lifecycleService.stop();
+        downloadManager.stop();
+        System.exit(0);
+    }
+
     private void showPathsDialog() {
         JDialog dialog = new JDialog(this, "Directory Settings", true);
         dialog.setLayout(new BorderLayout());
-        dialog.setSize(600, 300);
+        dialog.setSize(600, 480);
         dialog.setLocationRelativeTo(this);
 
         JPanel panel = new JPanel(new GridBagLayout());
@@ -585,7 +806,7 @@ public class Main extends JFrame {
         gbc.gridx = 0; gbc.gridy = 0; gbc.weightx = 1.0;
         gbc.insets = new Insets(0, 0, 5, 0);
 
-        panel.add(new JLabel("ComfyUI Models Path:"), gbc);
+        panel.add(new JLabel("ComfyUI Models Path (Target for downloads):"), gbc);
         
         gbc.gridy++;
         JPanel row1 = new JPanel(new BorderLayout(5, 0));
@@ -604,7 +825,7 @@ public class Main extends JFrame {
 
         gbc.gridy++;
         gbc.insets = new Insets(10, 0, 5, 0);
-        panel.add(new JLabel("Archive Path:"), gbc);
+        panel.add(new JLabel("Archive Path (Offload storage):"), gbc);
 
         gbc.gridy++;
         gbc.insets = new Insets(0, 0, 5, 0);
@@ -623,6 +844,55 @@ public class Main extends JFrame {
         panel.add(row2, gbc);
 
         gbc.gridy++;
+        gbc.insets = new Insets(10, 0, 5, 0);
+        panel.add(new JLabel("ComfyUI Main Directory (contains main.py):"), gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(0, 0, 5, 0);
+        JPanel row3 = new JPanel(new BorderLayout(5, 0));
+        JTextField field3 = new JTextField(configService.getComfyUIPath());
+        JButton browse3 = new JButton("Browse...");
+        row3.add(field3, BorderLayout.CENTER);
+        row3.add(browse3, BorderLayout.EAST);
+        panel.add(row3, gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(10, 0, 5, 0);
+        panel.add(new JLabel("Python Executable Path:"), gbc);
+
+        gbc.gridy++;
+        gbc.insets = new Insets(0, 0, 5, 0);
+        JPanel row4 = new JPanel(new BorderLayout(5, 0));
+        JTextField field4 = new JTextField(configService.getPythonPath());
+        JButton browse4 = new JButton("Browse...");
+        row4.add(field4, BorderLayout.CENTER);
+        row4.add(browse4, BorderLayout.EAST);
+        panel.add(row4, gbc);
+
+        browse3.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.DIRECTORIES_ONLY);
+            if (chooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) {
+                String path = chooser.getSelectedFile().getAbsolutePath();
+                field3.setText(path);
+                
+                // Auto-fill Python Path if possible
+                String discoveredPython = configService.discoverPython(path);
+                if (discoveredPython != null && !discoveredPython.equals("python") && !discoveredPython.equals("python3")) {
+                    field4.setText(discoveredPython);
+                }
+            }
+        });
+
+        browse4.addActionListener(e -> {
+            JFileChooser chooser = new JFileChooser();
+            chooser.setFileSelectionMode(JFileChooser.FILES_ONLY);
+            if (chooser.showOpenDialog(dialog) == JFileChooser.APPROVE_OPTION) {
+                field4.setText(chooser.getSelectedFile().getAbsolutePath());
+            }
+        });
+
+        gbc.gridy++;
         gbc.weighty = 1.0;
         panel.add(new JPanel(), gbc);
 
@@ -633,6 +903,13 @@ public class Main extends JFrame {
         save.addActionListener(e -> {
             configService.setModelsPath(field1.getText().trim());
             configService.setArchivePath(field2.getText().trim());
+            configService.setComfyUIPath(field3.getText().trim());
+            configService.setPythonPath(field4.getText().trim());
+            
+            // Re-generate launch command with new paths
+            configService.setComfyLaunchCommand(""); 
+            configService.autoDiscoverPaths();
+            
             statusLabel.setText("Settings updated.");
             analyzeJsonContent();
             dialog.dispose();
@@ -713,7 +990,7 @@ public class Main extends JFrame {
             for (int i = 0; i < rowCount; i++) {
                 if (selected[i]) {
                     String currentStatus = (String) tableModel.getValueAt(i, 7);
-                    if ("📦 Found in Archive".equals(currentStatus)) {
+                    if ("📦 Archived".equals(currentStatus)) {
                         final int idx = i;
                         ModelInfo info = modelsToDownload.get(idx);
                         String folder = info.getSave_path() != null ? info.getSave_path() : (info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName());
@@ -748,9 +1025,6 @@ public class Main extends JFrame {
                 }
             }
             
-            // After all restores, notify ComfyUI
-            downloadManager.notifyComfyUI();
-            
             // After restores, start the actual download manager for the remaining models
             SwingUtilities.invokeLater(() -> {
                 // Update selected array (some might have been unselected by restore)
@@ -769,7 +1043,8 @@ public class Main extends JFrame {
                     () -> SwingUtilities.invokeLater(() -> {
                         downloadButton.setEnabled(true);
                         statusLabel.setText("Queue finished.");
-                        if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
+                        
+                        triggerPostOperationActions();
                     })
                 );
             });
@@ -1016,24 +1291,41 @@ public class Main extends JFrame {
             
             String normalizedFolder = archiveService.normalizeFolder(folder);
 
+            // 1. Primary path check (Standard Models Path)
             Path local = "root".equals(normalizedFolder) ? Paths.get(base, info.getName()) : Paths.get(base, normalizedFolder, info.getName());
-            Path archivedPath = "root".equals(normalizedFolder) ? Paths.get(archive, info.getName()) : Paths.get(archive, normalizedFolder, info.getName());
-            
             boolean exists = Files.exists(local) && Files.isRegularFile(local);
-            boolean inArchive = Files.exists(archivedPath) && Files.isRegularFile(archivedPath);
-            boolean sizeMismatch = false;
 
-            // Initial size check for primary location
-            if (exists && info.getByteSize() > 0) {
-                try {
-                    if (Files.size(local) != info.getByteSize()) {
-                        sizeMismatch = true;
-                        exists = false;
-                    }
-                } catch (IOException e) { exists = false; }
+            // 2. Primary archive check (Standard Archive Path)
+            boolean inArchive = false;
+            Path archivedPath = null;
+            if (archive != null && !archive.trim().isEmpty()) {
+                archivedPath = "root".equals(normalizedFolder) ? Paths.get(archive, info.getName()) : Paths.get(archive, normalizedFolder, info.getName());
+                inArchive = Files.exists(archivedPath) && Files.isRegularFile(archivedPath);
             }
             
-            // Fallback: Recursive search in ARCHIVE if not found at primary location
+            boolean sizeMismatch = false;
+
+            // 3. Robust existence and archive cross-check (Safety Guard)
+            if (archive != null && !archive.isEmpty()) {
+                try {
+                    Path absArchive = Paths.get(archive).toAbsolutePath().normalize();
+                    
+                    // If 'local' is actually inside the archive, it's NOT a local active model
+                    if (exists && local.toAbsolutePath().normalize().startsWith(absArchive)) {
+                        exists = false;
+                        inArchive = true;
+                    }
+                    
+                    // If we found it in the primary archive location, verify size if known
+                    if (inArchive && info.getByteSize() > 0) {
+                        if (Files.size(archivedPath) != info.getByteSize()) {
+                            inArchive = false; // Size mismatch in archive doesn't count as "found"
+                        }
+                    }
+                } catch (Exception ignored) {}
+            }
+
+            // 4. Fallback: Recursive search in ARCHIVE if not found at primary archive location
             if (!inArchive && archive != null && !archive.isEmpty()) {
                 java.util.Optional<Path> foundInArchive = localScanner.findModelWithPrefSize(Paths.get(archive), info.getName(), info.getByteSize());
                 if (foundInArchive.isPresent()) {
@@ -1042,26 +1334,26 @@ public class Main extends JFrame {
                 }
             }
 
-            // Fallback: Recursive search in LOCAL MODELS if not found OR size mismatch at primary location
+            // 5. Fallback: Recursive search in LOCAL MODELS if not found OR size mismatch at primary location
             if ((!exists || sizeMismatch) && base != null && !base.isEmpty()) {
-                java.util.Optional<Path> foundLocally = localScanner.findModelWithPrefSize(Paths.get(base), info.getName(), info.getByteSize());
+                java.util.Optional<Path> foundLocally = localScanner.findModelWithPrefSizeAndType(Paths.get(base), info.getName(), info.getByteSize(), type);
                 if (foundLocally.isPresent()) {
                     Path potentialLocal = foundLocally.get();
                     try {
                         long potSize = Files.size(potentialLocal);
-                        // Only accept if size matches OR we don't know the remote size yet
                         if (info.getByteSize() <= 0 || potSize == info.getByteSize()) {
                             local = potentialLocal;
                             exists = true;
-                            sizeMismatch = false; // Found a correct one!
+                            sizeMismatch = false;
                             
-                            // Update normalizedFolder to the actual location found locally
-                            Path root = Paths.get(base);
-                            Path rel = root.relativize(local);
-                            if (rel.getParent() != null) {
-                                normalizedFolder = rel.getParent().toString().replace("\\", "/");
+                            Path root = Paths.get(base).toAbsolutePath().normalize();
+                            Path absPotential = potentialLocal.toAbsolutePath().normalize();
+                            
+                            if (absPotential.startsWith(root)) {
+                                Path rel = root.relativize(absPotential);
+                                normalizedFolder = (rel.getParent() != null) ? rel.getParent().toString().replace("\\", "/") : "root";
                             } else {
-                                normalizedFolder = "root";
+                                normalizedFolder = "extra/" + potentialLocal.getParent().getFileName();
                             }
                             info.setSave_path(normalizedFolder);
                         }
@@ -1069,44 +1361,12 @@ public class Main extends JFrame {
                 }
             }
 
-            // Safety check: if it exists at 'local' but 'local' is inside the archive folder, it's NOT locally existing in the right place
-            if (exists && archive != null && !archive.isEmpty() && 
-                local.toAbsolutePath().toString().toLowerCase().startsWith(new File(archive).getAbsolutePath().toLowerCase())) {
-                exists = false;
-                inArchive = true;
-            }
-            
-            // Rigorous 'Already exists' check: must match byteSize if known (redundant but safe)
-            if (exists && info.getByteSize() > 0) {
-                try {
-                    long localSize = Files.size(local);
-                    if (localSize != info.getByteSize()) {
-                        sizeMismatch = true;
-                        exists = false;
-                    }
-                } catch (IOException e) {
-                    exists = false;
-                }
-            }
-
-            // Populate size from local or archive if it exists and currently unknown
-            if ((exists || inArchive || sizeMismatch) && ("Unknown".equals(info.getSize()) || info.getByteSize() <= 0)) {
-                try {
-                    long bytes = Files.size(exists ? local : (sizeMismatch ? local : archivedPath));
-                    if (bytes > 0) {
-                        if (info.getByteSize() <= 0) info.setByteSize(bytes);
-                        if ("Unknown".equals(info.getSize())) info.setSize(searchService.formatSize(bytes));
-                    }
-                } catch (Exception e) {}
-            }
-
+            // 6. Final Status Determination
             String status;
-            if (exists && inArchive) {
-                status = "✅ Already exists (Archived copy found)";
-            } else if (exists) {
+            if (exists) {
                 status = "✅ Already exists";
             } else if (inArchive) {
-                status = "📦 Found in Archive";
+                status = "📦 Archived";
             } else if (sizeMismatch) {
                 status = "🔄 Size Mismatch";
             } else if (info.getUrl().equals("MISSING")) {
@@ -1148,7 +1408,7 @@ public class Main extends JFrame {
                                 
                                 // Re-verify status with new remote size info
                                 String currentStatus = (String) tableModel.getValueAt(idx, 7);
-                                if (currentStatus.contains("Already exists") || "🔄 Size Mismatch".equals(currentStatus) || "📦 Found in Archive".equals(currentStatus)) {
+                                if (currentStatus.contains("Already exists") || "🔄 Size Mismatch".equals(currentStatus) || "📦 Archived".equals(currentStatus)) {
                                     String type = info.getType() != null ? info.getType() : de.tki.comfymodels.domain.ModelFolder.CHECKPOINTS.getDefaultFolderName();
                                     String folder = info.getSave_path() != null ? info.getSave_path() : type;
                                     String base = configService.getModelsPath();
@@ -1191,13 +1451,13 @@ public class Main extends JFrame {
                                     boolean shouldSelect = false;
 
                                     if (localSizeMatch) {
-                                        newStatus = inArchive ? "✅ Already exists (Archived copy found)" : "✅ Already exists";
+                                        newStatus = "✅ Already exists";
                                         shouldSelect = false;
                                     } else if (localExists) {
                                         newStatus = "🔄 Size Mismatch";
                                         shouldSelect = true;
                                     } else if (inArchive) {
-                                        newStatus = "📦 Found in Archive";
+                                        newStatus = "📦 Archived";
                                         shouldSelect = true;
                                     } else {
                                         newStatus = "✅ Known Good";
@@ -1267,10 +1527,11 @@ public class Main extends JFrame {
                 if (exists) {
                     newStatus = "✅ Already exists";
                 } else if (inArchive) {
-                    newStatus = "📦 Found in Archive";
+                    newStatus = "📦 Archived";
                 } else {
                     newStatus = "✅ Known Good";
                 }
+
 
                 tableModel.setValueAt(newStatus, idx, 7);
                 tableModel.setValueAt(!exists, idx, 0); // Keep selected for download/restore if NOT local
@@ -1603,6 +1864,59 @@ public class Main extends JFrame {
         ArchiveWorkItem(int i, String f, String n, String s) { index = i; folder = f; name = n; size = s; }
     }
 
+    private void performFullServiceRestart() {
+        new Thread(() -> {
+            SwingUtilities.invokeLater(() -> {
+                statusLabel.setText("🚀 Triggering Full Service Restart...");
+                if (tableModel != null) {
+                    statusLabel.setText("🚀 Refreshing local library & Restarting ComfyUI...");
+                }
+            });
+            
+            // 1. Core logic: Stop -> Discover -> Reload Config -> Start
+            configService.autoDiscoverPaths();
+            lifecycleService.restart();
+            
+            // 2. Wait for health and notify user in status label
+            for (int i = 0; i < 45; i++) {
+                if (lifecycleService.isHealthy()) {
+                    SwingUtilities.invokeLater(() -> {
+                        statusLabel.setText("🔄 Syncing interface...");
+                        
+                        // 3. Reload integrated browser
+                        if (comfyWebPanel != null) {
+                            comfyWebPanel.reload();
+                        }
+
+                        // 4. Trigger external browser reload via Bridge (with a small delay for reconnect)
+                        new Thread(() -> {
+                            try { Thread.sleep(3000); } catch (InterruptedException ignored) {}
+                            downloadManager.notifyComfyUI(true);
+                        }).start();
+                        
+                        // 5. Refresh Model Table (Local existence checks)
+                        analyzeJsonContent();
+                        
+                        statusLabel.setText("✅ Ready");
+                    });
+                    return;
+                }
+                try { Thread.sleep(1000); } catch (InterruptedException ignored) {}
+            }
+            SwingUtilities.invokeLater(() -> statusLabel.setText("⚠️ ComfyUI restart taking longer than expected. Check Control Panel."));
+        }).start();
+    }
+
+    private void triggerPostOperationActions() {
+        SwingUtilities.invokeLater(() -> {
+            // Standardized Full Reload (replacing all soft reloads)
+            performFullServiceRestart();
+            
+            // Shutdown (only if enabled)
+            if (configService.isShutdownAfterDownloadEnabled()) performSystemShutdown();
+        });
+    }
+
     private void showModalProgressDialog(String title, String statusPrefix, List<Integer> selectedRows, 
                                         DefaultTableModel sourceModel, DefaultTableModel targetModel, TaskExecutor executor) {
         JDialog progressDialog = new JDialog(this, title, true);
@@ -1668,7 +1982,7 @@ public class Main extends JFrame {
                 for (Object[] rowData : rowsToMove) targetModel.addRow(rowData);
                 
                 analyzeJsonContent();
-                downloadManager.notifyComfyUI();
+                triggerPostOperationActions();
                 
                 JOptionPane.showMessageDialog(this, finalSuccess + " models successfully " + title.toLowerCase() + "ed.", 
                     "Operation Complete", JOptionPane.INFORMATION_MESSAGE);

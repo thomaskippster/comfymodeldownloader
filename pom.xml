@@ -3,12 +3,14 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>de.tki</groupId>
-    <artifactId>comfyui-companion</artifactId>
-    <version>1.1.0</version>
+    <artifactId>comfyuimodel-downloader</artifactId>
+    <version>1.0.14</version>
+    <name>[DEPRECATED] ComfyUI Model Downloader</name>
+    <description>DEPRECATED: Die Weiterentwicklung erfolgt im Rahmen von "Companion für ComfyUI" (https://github.com/thomaskippster/comfyuicompanion.git)</description>
 
     <scm>
-        <connection>scm:git:https://github.com/thomaskippster/comfyui-companion.git</connection>
-        <developerConnection>scm:git:https://github.com/thomaskippster/comfyui-companion.git</developerConnection>
+        <connection>scm:git:https://github.com/thomaskippster/comfymodeldownloader.git</connection>
+        <developerConnection>scm:git:https://github.com/thomaskippster/comfymodeldownloader.git</developerConnection>
         <tag>HEAD</tag>
     </scm>
 
@@ -16,7 +18,7 @@
         <repository>
             <id>github</id>
             <name>GitHub Packages</name>
-            <url>https://maven.pkg.github.com/thomaskippster/comfyui-companion</url>
+            <url>https://maven.pkg.github.com/thomaskippster/comfymodeldownloader</url>
         </repository>
     </distributionManagement>
 
@@ -28,7 +30,7 @@
         <dependency>
             <groupId>org.json</groupId>
             <artifactId>json</artifactId>
-            <version>20240303</version>
+            <version>20251224</version>
         </dependency>
         <dependency>
             <groupId>org.springframework</groupId>
@@ -61,13 +63,13 @@
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-core</artifactId>
-            <version>5.14.2</version>
+            <version>5.23.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
             <groupId>org.mockito</groupId>
             <artifactId>mockito-junit-jupiter</artifactId>
-            <version>5.14.2</version>
+            <version>5.23.0</version>
             <scope>test</scope>
         </dependency>
         <dependency>
@@ -115,7 +117,7 @@
     </dependencies>
 
     <build>
-        <finalName>ComfyUICompanion</finalName>
+        <finalName>ComfyUIModelDownloader</finalName>
         <plugins>
             <plugin>
                 <groupId>org.apache.maven.plugins</groupId>

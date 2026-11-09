@@ -272,10 +272,13 @@ public class ConfigService {
     public String discoverPython(String comfyRoot) {
         System.out.println("🐍 [Config] Searching for Python in/near: " + comfyRoot);
         // Priority 1: Check for .venv in comfy root or parent (Pinokio style)
+        File rootFile = (comfyRoot != null && !comfyRoot.trim().isEmpty()) ? new File(comfyRoot.trim()) : null;
+        File parent1 = rootFile != null ? rootFile.getParentFile() : null;
+        File parent2 = parent1 != null ? parent1.getParentFile() : null;
         File[] venvLocations = {
-            new File(comfyRoot, ".venv"),
-            new File(new File(comfyRoot).getParentFile(), ".venv"),
-            new File(new File(comfyRoot).getParentFile().getParentFile(), ".venv"), // Try 2 levels up
+            rootFile != null ? new File(rootFile, ".venv") : null,
+            parent1 != null ? new File(parent1, ".venv") : null,
+            parent2 != null ? new File(parent2, ".venv") : null, // Try 2 levels up
             new File("C:\\AI\\comfyuidata\\.venv")
         };
 
@@ -291,10 +294,12 @@ public class ConfigService {
         }
         
         // Priority 2: Check for python_embeded (Portable ComfyUI style)
-        File portablePython = new File(new File(comfyRoot).getParentFile(), "python_embeded/python.exe");
-        if (portablePython.exists()) {
-            System.out.println("📂 [Config] Found portable python at: " + portablePython.getAbsolutePath());
-            return portablePython.getAbsolutePath();
+        if (parent1 != null) {
+            File portablePython = new File(parent1, "python_embeded/python.exe");
+            if (portablePython.exists()) {
+                System.out.println("📂 [Config] Found portable python at: " + portablePython.getAbsolutePath());
+                return portablePython.getAbsolutePath();
+            }
         }
 
         System.out.println("⚠️ [Config] No venv found, falling back to system python.");

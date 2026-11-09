@@ -1,11 +1,17 @@
 # Build artifacts
 target/
+dist/
+.gradle/
 *.jar
 *.class
+*.exe
+*.msi
+*.zip
 dependency-reduced-pom.xml
 
 # IDE files
 .idea/
+.vscode/
 *.iml
 .settings/
 .project
@@ -17,30 +23,66 @@ Thumbs.db
 *.lnk
 
 # --- Project Specific ---
-# Sensitive API keys and secrets
+# Sensitive API keys, certificates, and secrets
 app_settings.json
+local_settings.json
 settings.vault
 *.vault
 gemini.bat
+gemini_admin.bat
 boot.key
+*.key
+*.pem
+*.p12
+*.jks
+secrets*
 .env
+.env.*
+opencode.json
+config.json
+web/config.json
 
-# User Model List (internal DB)
+# User Model List, state & internal JSON storage
 uploaded_models.json
 pending_downloads.json
+pending_*.json
 model_hashes.json
-
-# Local config & assets
-__pycache__/
+model_favorites.json
+prompt_history.json
+object_info*.json
 workflow.json
-!pom.xml
-!src/**
+extra_model_paths.yaml
+!src/main/resources/known_good_urls.json
+
+# Downloaded models, weights, partial downloads & outputs
+models/
+checkpoints/
+cache/
+output/
+*.safetensors
+*.cmfd
+*.part
+*.tmp
+*.ckpt
+*.onnx
+*.ort
+*.pt
+*.pth
+*.gguf
+*.bin
+
+# Python & local environments
+__pycache__/
+*.py[cod]
+env/
+.venv/
+venv/
+
+# Local scripts, logs & assets
+*.bat
+*.log
+hs_err_pid*.log
 *.png
 !icon.png
-env/
-*.bat
-*.zip
-model_hashes.json
-uploaded_models.json
-config.json
-!src/main/resources/known_good_urls.json
+!pom.xml
+!src/**

@@ -1,14 +1,9 @@
 # ⚠️ [DEPRECATED] ComfyUI Model Downloader
 
 > [!IMPORTANT]
-> **Dieses Projekt ist als veraltet (deprecated) markiert und wird hier nicht mehr aktiv weiterentwickelt.**
+> **This project is deprecated and is no longer actively maintained in this repository.**
 >
-> Die gesamte Weiterentwicklung findet im Nachfolgeprojekt **Companion für ComfyUI** statt:
-> 👉 **[thomaskippster/comfyuicompanion](https://github.com/thomaskippster/comfyuicompanion)** (`https://github.com/thomaskippster/comfyuicompanion.git`)
->
-> ---
-> **This project is deprecated and no longer actively maintained in this repository.**
-> Active development continues under **Companion für ComfyUI**:
+> All active development continues in the successor project **Companion for ComfyUI**:
 > 👉 **[thomaskippster/comfyuicompanion](https://github.com/thomaskippster/comfyuicompanion)** (`https://github.com/thomaskippster/comfyuicompanion.git`)
 
 ---
@@ -79,7 +74,7 @@ While usually not required, here is what the app typically discovers on differen
 
 ## 🚀 Getting Started
 
-> **Hinweis:** Bitte verwende für Neuinstallationen das Nachfolgeprojekt **[Companion für ComfyUI (`thomaskippster/comfyuicompanion`)](https://github.com/thomaskippster/comfyuicompanion)**.
+> **Note:** For new installations, please use the successor project **[Companion for ComfyUI (`thomaskippster/comfyuicompanion`)](https://github.com/thomaskippster/comfyuicompanion)**.
 
 Choose one of the following three ways to install and run the application:
 

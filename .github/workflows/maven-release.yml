@@ -1,7 +1,7 @@
 name: Maven Auto-Release
 
 on:
-  workflow_dispatch: # Startet weiterhin manuell per Klick, aber ohne Texteingabe
+  workflow_dispatch: # Triggered manually without text input
 
 jobs:
   release:
@@ -37,14 +37,14 @@ jobs:
 
       - name: Set Version and Build
         run: |
-          # Wir nehmen 1.0 als Basis und hängen die Run-Nummer an
+          # Use 1.0 as base version and append the GitHub run number
           NEW_VERSION="1.0.${{ github.run_number }}"
           echo "VERSION=$NEW_VERSION" >> $GITHUB_ENV
           
-          # Version in pom.xml patchen
+          # Patch version in pom.xml
           mvn -B versions:set -DnewVersion=$NEW_VERSION -DgenerateBackupPoms=false
           
-          # Projekt bauen
+          # Build project
           mvn -B clean package -DskipTests
 
       - name: Create Git Tag
@@ -73,10 +73,7 @@ jobs:
           
           echo "Uploading version $REL_VERSION to project $PROJECT_NAME..."
           
-          # Wir nutzen sftp, da es in der restricted shell von SourceForge oft zuverlässiger ist als rsync
-          # und wir damit gezielt das Verzeichnis anlegen können.
-          # Das Minus vor mkdir ignoriert Fehler, falls das Verzeichnis bereits existiert.
-          
+          # Use sftp for reliable directory creation and upload on SourceForge
           cat <<EOF > sftp_batch
           -mkdir /home/frs/project/$PROJECT_NAME/$REL_VERSION
           put target/ComfyUIModelDownloader.jar /home/frs/project/$PROJECT_NAME/$REL_VERSION/

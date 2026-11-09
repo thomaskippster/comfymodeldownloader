@@ -6,7 +6,7 @@
     <artifactId>comfyuimodel-downloader</artifactId>
     <version>1.0.14</version>
     <name>[DEPRECATED] ComfyUI Model Downloader</name>
-    <description>DEPRECATED: Die Weiterentwicklung erfolgt im Rahmen von "Companion für ComfyUI" (https://github.com/thomaskippster/comfyuicompanion.git)</description>
+    <description>DEPRECATED: Active development continues under "Companion for ComfyUI" (https://github.com/thomaskippster/comfyuicompanion.git)</description>
 
     <scm>
         <connection>scm:git:https://github.com/thomaskippster/comfymodeldownloader.git</connection>
